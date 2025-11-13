@@ -1,0 +1,239 @@
+<!-- /templates/index.html -->
+{% extends 'base.html' %}
+
+{% block title %}Dashboard Premium - Almoxarifado{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* Fundo com gradiente animado */
+    body {
+        background: linear-gradient(-45deg, #0a0a0a, #1a1a2a, #0a0a0a, #2a1a1a);
+        background-size: 400% 400%;
+        animation: gradientBG 25s ease infinite;
+    }
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* Estilos específicos para a nova dashboard */
+    .kpi-card .card-body {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .kpi-card .kpi-icon {
+        font-size: 3rem;
+        opacity: 0.3;
+    }
+    .kpi-card .kpi-value {
+        font-size: 2.5rem;
+        font-weight: 700;
+    }
+    .kpi-card .card-title {
+        font-size: 1rem;
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+    }
+
+    /* Timeline de Atividade */
+    .timeline {
+        list-style: none;
+        padding: 0;
+        position: relative;
+    }
+    .timeline:before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 20px;
+        width: 2px;
+        background: var(--card-border-color);
+    }
+    .timeline-item {
+        margin-bottom: 20px;
+        position: relative;
+        padding-left: 50px;
+    }
+    .timeline-icon {
+        position: absolute;
+        left: 10px;
+        top: 0;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 22px;
+        font-size: 12px;
+    }
+
+    /* Efeito de hover nos cards */
+    .card {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
+    }
+
+    /* Animação de Fade-in ao rolar */
+    .fade-in-section {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+    .fade-in-section.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="mb-0">Painel de Controle</h3>
+    <div class="btn-group">
+        <a href="{{ url_for('movimentacao') }}" class="btn btn-success"><i class="fas fa-exchange-alt"></i> Registrar Movimentação</a>
+        <a href="{{ url_for('estoque') }}" class="btn btn-primary"><i class="fas fa-boxes"></i> Ver Estoque Completo</a>
+    </div>
+</div>
+
+<!-- Linha de KPIs -->
+<div class="row g-3 mb-4 fade-in-section">
+    <div class="col-xl-3 col-md-6">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <div>
+                    <h5 class="card-title text-muted">ITENS DISTINTOS</h5>
+                    <span class="kpi-value">{{ total_items_distintos }}</span>
+                </div>
+                <i class="fas fa-fingerprint kpi-icon"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <div>
+                    <h5 class="card-title text-muted">TOTAL DE UNIDADES</h5>
+                    <span class="kpi-value">{{ "%.0f"|format(total_unidades) }}</span>
+                </div>
+                <i class="fas fa-cubes kpi-icon"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <div>
+                    <h5 class="card-title text-muted">ITENS ZERADOS</h5>
+                    <span class="kpi-value text-warning">{{ itens_zerados }}</span>
+                </div>
+                <i class="fas fa-ban kpi-icon"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card kpi-card">
+            <div class="card-body">
+                <div>
+                    <h5 class="card-title text-muted">LOTES CRÍTICOS</h5>
+                    <span class="kpi-value text-danger">{{ critical_lotes|length }}</span>
+                </div>
+                <i class="fas fa-exclamation-triangle kpi-icon"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Linha de Gráficos Principais -->
+<div class="row g-3 mb-4 fade-in-section">
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">Movimentações (Últimos 15 dias)</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="movimentacoesChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">Itens por Tipo</h5>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <canvas id="tiposChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Linha de Detalhes e Atividade -->
+<div class="row g-3 fade-in-section">
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-arrow-up text-success"></i> Top 5 Itens com Maior Estoque</h5>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for item in top_stocked_items %}
+                <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-truncate" title="{{ item.descricao }}">{{ item.descricao }}</a>
+                    <span class="badge bg-success rounded-pill">{{ "%.0f"|format(item.qtd_estoque) }}</span>
+                </li>
+                {% else %}
+                <li class="list-group-item bg-transparent text-center">Nenhum item no estoque.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-arrow-down text-warning"></i> Top 5 Itens com Baixo Estoque</h5>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for item in low_stocked_items %}
+                <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-truncate" title="{{ item.descricao }}">{{ item.descricao }}</a>
+                    <span class="badge bg-warning rounded-pill">{{ "%.0f"|format(item.qtd_estoque) }}</span>
+                </li>
+                {% else %}
+                <li class="list-group-item bg-transparent text-center">Nenhum item com baixo estoque.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-history"></i> Atividade Recente</h5>
+            </div>
+            <div class="card-body">
+                <ul class="timeline">
+                    {% for mov in recent_movimentacoes %}
+                    <li class="timeline-item">
+                        {% if mov.tipo == 'ENTRADA' %}
+                        <div class="timeline-icon bg-success"><i class="fas fa-plus"></i></div>
+                        <small class="text-muted">{{ mov.data_movimentacao.strftime('%d/%m %H:%M') }}</small><br>
+                        <strong>Entrada</strong> de <strong>{{ "%.0f"|format(mov.quantidade) }} un.</strong> no item <a href="{{ url_for('historico', item_id=mov.item_id) }}">{{ mov.item.codigo }}</a>.
+                        {% else %}
+                        <div class="timeline-icon bg-danger"><i class="fas fa-minus"></i></div>
+                        <small class="text-muted">{{ mov.data_movimentacao.strftime('%d/%m %H:%M') }}</small><br>
+                        <strong>Saída</strong> de <strong>{{ "%.0f"|format(mov.quantidade) }} un.</strong> do item <a href="{{ url_for('historico', item_id=mov.item_id) }}">{{ mov.item.codigo }}</a>.
+                        {% endif %}
+                    </li>
+                    {% else %}
+                    <li class="text-center text-muted">Nenhuma movimentação recente.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+        
+{% endblock %}

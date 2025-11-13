@@ -1,0 +1,56 @@
+<!-- /templates/editar_item.html -->
+{% extends 'base.html' %}
+
+{% block title %}Editar Item - {{ item.descricao }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Editando Item: <span class="text-primary">{{ item.descricao }}</span></h3>
+        <p class="text-muted mb-0">Código: {{ item.codigo }}</p>
+    </div>
+    <div class="card-body">
+        <form action="{{ url_for('editar_item', item_id=item.id) }}" method="post">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="codigo" class="form-label">CÓDIGO*</label>
+                    <input type="text" class="form-control" id="codigo" name="codigo" value="{{ item.codigo }}" required>
+                </div>
+                <div class="col-md-8">
+                    <label for="descricao" class="form-label">DESCRIÇÃO*</label>
+                    <input type="text" class="form-control" id="descricao" name="descricao" value="{{ item.descricao }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label for="endereco" class="form-label">ENDEREÇO</label>
+                    <input type="text" class="form-control" id="endereco" name="endereco" value="{{ item.endereco or '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label for="codigo_opcional" class="form-label">CÓDIGO OPCIONAL</label>
+                    <input type="text" class="form-control" id="codigo_opcional" name="codigo_opcional" value="{{ item.codigo_opcional or '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label for="tipo" class="form-label">TIPO</label>
+                    <input type="text" class="form-control" id="tipo" name="tipo" value="{{ item.tipo or '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="un" class="form-label">UN</label>
+                    <input type="text" class="form-control" id="un" name="un" value="{{ item.un or '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label for="dimensao" class="form-label">DIMENSÃO</label>
+                    <input type="text" class="form-control" id="dimensao" name="dimensao" value="{{ item.dimensao or '' }}">
+                </div>
+                <div class="col-md-6">
+                    <label for="cliente" class="form-label">CLIENTE</label>
+                    <input type="text" class="form-control" id="cliente" name="cliente" value="{{ item.cliente or '' }}">
+                </div>
+            </div>
+            <hr>
+            <div class="d-flex justify-content-end">
+                <a href="{{ url_for('estoque') }}" class="btn btn-secondary me-2">Cancelar</a>
+                <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

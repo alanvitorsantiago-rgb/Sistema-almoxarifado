@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-br" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sistema de Almoxarifado{% endblock %}</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- CSS Customizado para Tema Neon -->
+    <style>
+        :root {
+            --neon-glow-color: #00ffff; /* Ciano Neon */
+            --neon-text-color: #00ffff;
+            --background-color: #0a0a0a; /* Preto um pouco mais suave */
+            --card-bg-color: #1a1a1a;
+            --card-border-color: #333;
+            --danger-neon: #ff00ff; /* Magenta Neon */
+            --warning-neon: #ffff00; /* Amarelo Neon */
+        }
+
+        body {
+            color: #e0e0e0; /* Cor de texto padrão mais suave */
+            /* Gradiente de duas cores aplicado a todas as páginas */
+            background: linear-gradient(to right, #0d1117, #203a43);
+            /* Garante que o fundo permaneça fixo durante a rolagem da página */
+            background-attachment: fixed;
+        }
+
+        /* Efeito Neon para textos e links */
+        .navbar-brand, .nav-link, .dropdown-item, h1, h2, h3, h4, h5, .btn, a {
+            transition: all 0.3s ease;
+        }
+        a, .nav-link, .navbar-brand {
+            color: var(--neon-text-color) !important;
+            text-shadow: 0 0 5px rgba(0, 255, 255, 0.7), 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        a:hover, .nav-link:hover, .navbar-brand:hover, .dropdown-item:hover {
+            text-shadow: 0 0 10px var(--neon-glow-color), 0 0 20px var(--neon-glow-color);
+        }
+
+        /* Estilização dos Cards */
+        .card {
+            margin-bottom: 1.5rem;
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--card-border-color);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+        }
+
+        .table {
+            --bs-table-bg: var(--card-bg-color);
+            --bs-table-border-color: var(--card-border-color);
+        }
+
+        /* --- Estilização da Tabela de Estoque --- */
+        .table-estoque tbody tr:hover {
+            background-color: rgba(0, 255, 255, 0.1); /* Ciano semi-transparente no hover */
+            --bs-table-hover-color: #ffffff; /* Garante que o texto fique branco no hover */
+        }
+
+        /* Célula de Quantidade (QTD) */
+        .table-estoque .col-qtd {
+            vertical-align: middle;
+            text-align: center; /* Garante a centralização */
+        }
+
+        /* Regras de Contraste para Status de Estoque */
+        .table-estoque .bg-warning,
+        .table-estoque .bg-warning small { /* Estoque Baixo (Amarelo) */
+            color: #000000 !important; /* Texto PRETO */
+            text-shadow: none !important; /* Remove sombra de texto que poderia atrapalhar */
+        }
+
+        .table-estoque .bg-danger,
+        .table-estoque .bg-danger small,
+        .table-estoque .bg-success-subtle,
+        .table-estoque .bg-success-subtle small { /* Fundos escuros (Vermelho, Verde, etc) */
+            color: #ffffff !important; /* Texto BRANCO */
+            /* Adiciona um leve brilho para destacar o texto no fundo escuro */
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+        }
+
+        /* Cores Neon para Status */
+        .text-danger, .qtd-zero { color: var(--danger-neon) !important; text-shadow: 0 0 8px var(--danger-neon); }
+        .text-warning, .qtd-alerta { color: var(--warning-neon) !important; text-shadow: 0 0 8px var(--warning-neon); }
+        .text-success, .qtd-ok { color: #00ff00 !important; text-shadow: 0 0 8px #00ff00; } /* Verde Neon */
+        .text-info { color: var(--neon-text-color) !important; }
+
+        /* Botões com Efeito Neon */
+        .btn-success { background-color: #006400; border-color: #00ff00; box-shadow: 0 0 8px #00ff00; }
+        .btn-danger { background-color: #8b008b; border-color: var(--danger-neon); box-shadow: 0 0 8px var(--danger-neon); }
+        .btn-warning { background-color: #b8860b; border-color: var(--warning-neon); box-shadow: 0 0 8px var(--warning-neon); }
+        .btn-primary, .btn-info { background-color: #008b8b; border-color: var(--neon-glow-color); box-shadow: 0 0 8px var(--neon-glow-color); }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                Sistema de Almoxarifado
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('estoque') }}"><i class="fas fa-boxes"></i> Estoque</a></li>
+                    {% if current_user.role == 'admin' %}
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('movimentacao') }}"><i class="fas fa-exchange-alt"></i> Movimentação</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('importar') }}"><i class="fas fa-file-import"></i> Importar</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('gerenciar_usuarios') }}"><i class="fas fa-users-cog"></i> Usuários</a></li>
+                    {% endif %}
+                </ul>
+                <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-user"></i> {{ current_user.username }}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                                <li><a class="dropdown-item" href="{{ url_for('logout') }}">Sair</a></li>
+                            </ul>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% include 'includes/_messages.html' %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Chart.js para os gráficos da dashboard -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

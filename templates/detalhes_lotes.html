@@ -1,0 +1,88 @@
+<!-- /templates/detalhes_lotes.html -->
+{% extends 'base.html' %}
+
+{% block title %}Lotes de {{ item.descricao }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <style>
+    .table-responsive {
+        overflow-x: auto;
+    }
+    </style>
+
+    <div>
+        <h3>Detalhes de Lotes</h3>
+        <p class="lead mb-0">Item: <strong class="text-primary">{{ item.descricao }}</strong> (Código: {{ item.codigo }})</p>
+    </div>
+    <a href="{{ url_for('estoque') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar para o Estoque</a>
+</div>
+
+<!-- Botões de Filtro -->
+<div class="mb-3">
+    <div class="btn-group" role="group" aria-label="Filtros de Validade">
+        <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="btn btn-outline-primary {% if not filtro_ativo %}active{% endif %}">
+            <i class="fas fa-list"></i> Mostrar Todos
+        </a>
+        <a href="{{ url_for('detalhes_lotes', item_id=item.id, filtro='critico') }}" class="btn btn-outline-danger {% if filtro_ativo == 'critico' %}active{% endif %}">
+            <i class="fas fa-exclamation-triangle"></i> Mostrar Apenas Críticos (Vencidos ou < 30 dias)
+        </a>
+    </div>
+</div>
+
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover" style="vertical-align: middle;">
+                <thead class="table-dark">
+                    <tr>
+                        <th>LOTE</th>
+                        <th>ITEM NF</th>
+                        <th>NF</th>
+                        <th>Validade</th>
+                        <th>Estação</th>
+                        <th>Status da Validade</th>
+                        <th>Quantidade</th>
+                        <th>Data Entrada</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for detalhe in detalhes %}
+                    <tr>
+                        <td>{{ detalhe.lote }}</td>
+                        <td>{{ detalhe.item_nf }}</td>
+                        <td>{{ detalhe.nf or 'N/A' }}</td>
+                        <td>{{ detalhe.validade.strftime('%d/%m/%Y') if detalhe.validade else 'N/A' }}</td>
+                        <td>{{ detalhe.estacao or 'N/A' }}</td>
+                        <td>
+                            {% set status = calculate_status(detalhe.validade) %}
+                            <span class="{{ status[1] }}">{{ status[0] }}</span>
+                        </td>
+                        <td class="fw-bold">{{ detalhe.quantidade }}</td>
+                        <td>{{ detalhe.data_entrada.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td class="text-center">
+                            <div class="btn-group" role="group">
+                                {% if current_user.role == 'admin' %}
+                                <a href="{{ url_for('ajustar_lote', detalhe_id=detalhe.id) }}" class="btn btn-sm btn-secondary" title="Ajustar Lote"><i class="fas fa-edit"></i> Ajustar</a>
+                                <a href="{{ url_for('excluir_lote', detalhe_id=detalhe.id) }}" class="btn btn-sm btn-danger" title="Excluir Lote" onclick="return confirm('Tem certeza que deseja excluir este lote? Esta ação não pode ser desfeita.');"><i class="fas fa-trash-alt"></i></a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        {% if filtro_ativo == 'critico' %}
+                            <td colspan="9" class="text-center">Nenhum lote em estado crítico encontrado.</td>
+                        {% else %}
+                            <td colspan="9" class="text-center">Nenhum detalhe de lote encontrado para este item.</td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
