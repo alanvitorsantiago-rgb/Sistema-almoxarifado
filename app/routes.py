@@ -1,79 +1,18 @@
-# /app.py
-
+# app/routes.py
 import os
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, make_response
+from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import or_, func
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask_bcrypt import Bcrypt
-from models import db, User, ItemEstoque, Movimentacao, EstoqueDetalhe
-from functools import wraps 
-from zoneinfo import ZoneInfo # Importa a biblioteca para trabalhar com fusos horários
 from datetime import datetime, date, timedelta
 import pandas as pd
 import io
-from flask_migrate import Migrate # Importa o Flask-Migrate
+from zoneinfo import ZoneInfo
 
-# --- INICIALIZAÇÃO E CONFIGURAÇÃO DA APLICAÇÃO ---
-app = Flask(__name__)
-basedir = os.path.abspath(os.path.dirname(__file__))
+from . import db, bcrypt
+from .models import User, ItemEstoque, Movimentacao, EstoqueDetalhe
+from functools import wraps
 
-# Inicializa as extensões
-db.init_app(app)
-bcrypt = Bcrypt(app)
-login_manager = LoginManager(app)
-migrate = Migrate(app, db)
-
-def configure_app(app_instance):
-    """Configura a aplicação Flask."""
-    # Chave secreta para sessões e mensagens flash
-    app_instance.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'uma-chave-padrao-para-desenvolvimento') 
-    
-    # Configuração do banco de dados: usa DATABASE_URL (PostgreSQL no Render) se disponível, senão usa SQLite local.
-    database_url = os.environ.get('DATABASE_URL')
-    if database_url:
-        # A URL do Render vem como 'postgres://...', mas SQLAlchemy prefere 'postgresql://...'
-        database_url = database_url.replace('postgres://', 'postgresql://', 1)
-        app_instance.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    else:
-        app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
-        
-    app_instance.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-    login_manager.login_view = 'login'  # Rota para redirecionar usuários não logados
-    login_manager.login_message = "Por favor, faça login para acessar esta página."
-    login_manager.login_message_category = 'info'
-
-configure_app(app)
-
-# --- FUNÇÕES AUXILIARES E CONTEXT PROCESSORS ---
-
-def calculate_validity_status(validade_date):
-    """Calcula o status de validade e retorna uma tupla (texto, classe_css)."""
-    if not validade_date:
-        return ("Sem validade", "text-muted")
-
-    today = datetime.today().date()
-    delta = (validade_date - today).days
-
-    if delta < 0:
-        return (f"Vencido há {-delta} dia(s)", "text-danger fw-bold")
-    elif delta == 0:
-        return ("Vence hoje!", "text-danger fw-bold")
-    elif delta <= 30:
-        return (f"Vence em {delta} dia(s)", "text-warning fw-bold")
-    elif delta <= 90:
-        return (f"Vence em {delta} dia(s)", "text-info")
-    else:
-        return (f"Vence em {delta} dia(s)", "text-success")
-
-@app.context_processor
-def utility_processor():
-    """Disponibiliza a função para todos os templates."""
-    return dict(calculate_status=calculate_validity_status)
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+main = Blueprint('main', __name__)
 
 # --- DECORADOR PARA ROTAS DE ADMIN ---
 def admin_required(f):
@@ -81,14 +20,13 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or current_user.role != 'admin':
             flash('Acesso negado. Esta área é restrita a administradores.', 'danger')
-            return redirect(url_for('index'))
+            return redirect(url_for('main.index'))
         return f(*args, **kwargs)
     return decorated_function
 
-
 # --- ROTAS DA APLICAÇÃO ---
 
-@app.route('/dashboard')
+@main.route('/dashboard')
 @login_required
 def dashboard():
     """Renderiza o dashboard com dados reais do banco de dados."""
@@ -179,13 +117,13 @@ def dashboard():
                            etapas_chart_data=etapas_chart_data, # Novo dado para o template
                            today_date=hoje)
 
-@app.route('/')
+@main.route('/')
 @login_required
 def index():
     """Redireciona a rota raiz para o novo dashboard."""
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('main.dashboard'))
 
-@app.route('/cadastro', methods=['GET', 'POST'])
+@main.route('/cadastro', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def cadastro():
@@ -206,26 +144,26 @@ def cadastro():
         # Validação para campos obrigatórios do ItemEstoque
         if not codigo or not descricao:
             flash('Código e Descrição são campos obrigatórios para o item!', 'danger')
-            return redirect(url_for('cadastro'))
+            return redirect(url_for('main.cadastro'))
         
         # Validação para campos obrigatórios do EstoqueDetalhe inicial
         if not qtd_entrada or not lote or not item_nf:
             flash('Quantidade, Lote e Item NF são campos obrigatórios para a entrada inicial!', 'danger')
-            return redirect(url_for('cadastro'))
+            return redirect(url_for('main.cadastro'))
 
         try:
             qtd_entrada = float(qtd_entrada)
             if qtd_entrada <= 0:
                 flash('A quantidade de entrada deve ser um número inteiro positivo.', 'danger')
-                return redirect(url_for('cadastro'))
+                return redirect(url_for('main.cadastro'))
         except (ValueError, TypeError):
             flash('A quantidade de entrada deve ser um número válido.', 'danger')
-            return redirect(url_for('cadastro'))
+            return redirect(url_for('main.cadastro'))
 
         # Verifica se o item já existe pelo código
         if ItemEstoque.query.filter_by(codigo=codigo).first():
             flash(f'Item com o código "{codigo}" já existe no estoque. Use a tela de movimentação para adicionar mais lotes.', 'warning')
-            return redirect(url_for('cadastro'))
+            return redirect(url_for('main.cadastro'))
 
         # Converte validade
         validade = datetime.strptime(validade_str, '%Y-%m-%d').date() if validade_str else None
@@ -271,11 +209,11 @@ def cadastro():
             db.session.rollback()
             flash(f'Erro ao cadastrar o item e lote: {e}', 'danger')
         
-        return redirect(url_for('estoque'))
+        return redirect(url_for('main.estoque'))
 
     return render_template('cadastro.html')
 
-@app.route('/estoque')
+@main.route('/estoque')
 @login_required
 def estoque():
     """Página para listar todos os itens do estoque."""
@@ -309,7 +247,7 @@ def estoque():
                            timedelta=timedelta,
                            EstoqueDetalhe=EstoqueDetalhe) # Passa a classe para o template
 
-@app.route('/item/editar/<int:item_id>', methods=['GET', 'POST'])
+@main.route('/item/editar/<int:item_id>', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def editar_item(item_id):
@@ -348,14 +286,14 @@ def editar_item(item_id):
         try:
             db.session.commit()
             flash('Item atualizado com sucesso!', 'success')
-            return redirect(url_for('estoque'))
+            return redirect(url_for('main.estoque'))
         except Exception as e:
             db.session.rollback()
             flash(f'Erro ao atualizar o item: {e}', 'danger')
 
     return render_template('editar_item.html', item=item)
 
-@app.route('/item/excluir/<int:item_id>')
+@main.route('/item/excluir/<int:item_id>')
 @admin_required
 @login_required
 def excluir_item(item_id):
@@ -365,9 +303,9 @@ def excluir_item(item_id):
     db.session.delete(item)
     db.session.commit()
     flash(f'Item "{item.descricao}" e todo o seu histórico foram excluídos com sucesso.', 'success')
-    return redirect(url_for('estoque'))
+    return redirect(url_for('main.estoque'))
 
-@app.route('/movimentacao', methods=['GET', 'POST'])
+@main.route('/movimentacao', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def movimentacao():
@@ -380,22 +318,22 @@ def movimentacao():
         
         if not item_id or not tipo:
             flash('Item ou tipo de movimentação inválido.', 'danger')
-            return redirect(url_for('movimentacao'))
+            return redirect(url_for('main.movimentacao'))
 
         item = ItemEstoque.query.get_or_404(item_id)
 
         if not etapa:
             flash('O campo Etapa de Destino é obrigatório.', 'danger')
-            return redirect(url_for('movimentacao'))
+            return redirect(url_for('main.movimentacao'))
 
         try:
             quantidade = float(request.form.get('quantidade'))
             if quantidade <= 0:
                 flash('A quantidade deve ser um número positivo.', 'danger')
-                return redirect(url_for('movimentacao'))
+                return redirect(url_for('main.movimentacao'))
         except (ValueError, TypeError):
             flash('A quantidade deve ser um número válido.', 'danger')
-            return redirect(url_for('movimentacao'))
+            return redirect(url_for('main.movimentacao'))
 
         # --- LÓGICA DE ENTRADA ---
         if tipo == 'ENTRADA':
@@ -404,7 +342,7 @@ def movimentacao():
             nf = request.form.get('nf')
             if not lote or not item_nf:
                 flash('Lote e Item NF são obrigatórios para entrada.', 'danger')
-                return redirect(url_for('movimentacao'))
+                return redirect(url_for('main.movimentacao'))
 
             # Verifica se já existe um detalhe com a mesma combinação de Lote, Item NF e NF
             detalhe_existente = item.detalhes_estoque.filter_by(lote=lote, item_nf=item_nf, nf=nf).first()
@@ -450,17 +388,17 @@ def movimentacao():
             detalhe_id = request.form.get('detalhe_id')
             if not detalhe_id:
                 flash('É necessário selecionar um Lote/Item NF para a saída.', 'danger')
-                return redirect(url_for('movimentacao'))
+                return redirect(url_for('main.movimentacao'))
 
             detalhe_estoque = EstoqueDetalhe.query.get(detalhe_id)
 
             if not detalhe_estoque or detalhe_estoque.item_estoque_id != item.id:
                 flash('Lote/Item NF inválido para este item.', 'danger')
-                return redirect(url_for('movimentacao'))
+                return redirect(url_for('main.movimentacao'))
 
             if detalhe_estoque.quantidade < quantidade:
                 flash(f'Quantidade insuficiente no lote selecionado. Disponível: {detalhe_estoque.quantidade}', 'danger')
-                return redirect(url_for('movimentacao'))
+                return redirect(url_for('main.movimentacao'))
 
             # Subtrai a quantidade do lote específico e do total
             detalhe_estoque.quantidade -= quantidade
@@ -484,12 +422,12 @@ def movimentacao():
             db.session.commit()
             flash('Saída registrada com sucesso!', 'success')
 
-        return redirect(url_for('movimentacao'))
+        return redirect(url_for('main.movimentacao'))
 
     # Para o método GET (carregamento da página)
     return render_template('movimentacao.html')
 
-@app.route('/historico/<int:item_id>')
+@main.route('/historico/<int:item_id>')
 @login_required
 def historico(item_id):
     """Página para exibir o histórico de movimentações de um item."""
@@ -498,7 +436,7 @@ def historico(item_id):
     movimentacoes = item.movimentacoes.order_by(Movimentacao.data_movimentacao.desc()).all()
     return render_template('historico.html', item=item, movimentacoes=movimentacoes)
 
-@app.route('/item/<int:item_id>/lotes-detalhes')
+@main.route('/item/<int:item_id>/lotes-detalhes')
 @login_required
 def detalhes_lotes(item_id):
     """Página para exibir todos os detalhes de lote de um item."""
@@ -520,7 +458,7 @@ def detalhes_lotes(item_id):
     detalhes = query.order_by(EstoqueDetalhe.validade.asc()).all()
     return render_template('detalhes_lotes.html', item=item, detalhes=detalhes, filtro_ativo=filtro_ativo)
 
-@app.route('/lote/excluir/<int:detalhe_id>')
+@main.route('/lote/excluir/<int:detalhe_id>')
 @admin_required
 @login_required
 def excluir_lote(detalhe_id):
@@ -544,12 +482,12 @@ def excluir_lote(detalhe_id):
         flash(f'Erro ao excluir o lote: {e}', 'danger')
 
     # Redireciona para a página de detalhes do item
-    return redirect(url_for('detalhes_lotes', item_id=item_id))
+    return redirect(url_for('main.detalhes_lotes', item_id=item_id))
 
 
 
 
-@app.route('/ajuste/lote/<int:detalhe_id>', methods=['GET', 'POST'])
+@main.route('/ajuste/lote/<int:detalhe_id>', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def ajustar_lote(detalhe_id):
@@ -594,7 +532,7 @@ def ajustar_lote(detalhe_id):
 
         if not dados_alterados:
             flash('Nenhum dado foi alterado. Nenhuma ação foi realizada.', 'info')
-            return redirect(url_for('detalhes_lotes', item_id=item.id))
+            return redirect(url_for('main.detalhes_lotes', item_id=item.id))
 
         try:
             # 1. Atualiza os dados do lote
@@ -619,7 +557,7 @@ def ajustar_lote(detalhe_id):
             db.session.add(mov_ajuste)
             db.session.commit()
             flash(f'Estoque do lote {detalhe.lote} ajustado com sucesso!', 'success')
-            return redirect(url_for('detalhes_lotes', item_id=item.id))
+            return redirect(url_for('main.detalhes_lotes', item_id=item.id))
         except Exception as e:
             db.session.rollback()
             flash(f'Erro ao ajustar o estoque: {e}', 'danger')
@@ -628,7 +566,7 @@ def ajustar_lote(detalhe_id):
 
 # --- ROTAS DE API INTERNA (para JavaScript) ---
 
-@app.route('/api/item/by-code/<string:codigo>')
+@main.route('/api/item/by-code/<string:codigo>')
 @login_required
 def api_get_item_by_code(codigo):
     """Retorna os dados de um item pelo seu código em formato JSON."""
@@ -640,7 +578,7 @@ def api_get_item_by_code(codigo):
     # Reutiliza a função api_get_item para não duplicar o código de formatação do JSON.
     return api_get_item(item.id)
 
-@app.route('/api/item/<int:item_id>')
+@main.route('/api/item/<int:item_id>')
 @login_required
 def api_get_item(item_id):
     """Retorna os dados de um item em formato JSON."""
@@ -654,7 +592,7 @@ def api_get_item(item_id):
         'cliente': item.cliente
     })
 
-@app.route('/api/item/<int:item_id>/lotes')
+@main.route('/api/item/<int:item_id>/lotes')
 @login_required
 def api_get_lotes(item_id):
     """
@@ -678,7 +616,7 @@ def api_get_lotes(item_id):
     lotes = [{'id': d.id, 'lote': d.lote, 'item_nf': d.item_nf, 'quantidade': d.quantidade, 'validade': d.validade.strftime('%d/%m/%Y') if d.validade else 'N/A'} for d in detalhes]
     return jsonify(lotes)
 
-@app.route('/importar', methods=['GET', 'POST'])
+@main.route('/importar', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def importar():
@@ -773,7 +711,7 @@ def importar():
                 flash(f'Ocorreu um erro ao processar o arquivo: {e}', 'danger')
                 return redirect(request.url)
 
-            return redirect(url_for('estoque'))
+            return redirect(url_for('main.estoque'))
 
         else:
             flash('Formato de arquivo inválido. Por favor, envie um arquivo .xlsx', 'danger')
@@ -781,7 +719,7 @@ def importar():
 
     return render_template('importar.html')
 
-@app.route('/exportar/excel')
+@main.route('/exportar/excel')
 @login_required
 def exportar_excel():
     """Exporta um relatório detalhado do estoque para um arquivo Excel."""
@@ -829,9 +767,9 @@ def exportar_excel():
 
     except Exception as e:
         flash(f'Erro ao gerar o relatório: {e}', 'danger')
-        return redirect(url_for('estoque'))
+        return redirect(url_for('main.estoque'))
 
-@app.route('/autorizacao/limpar', methods=['GET', 'POST'])
+@main.route('/autorizacao/limpar', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def autorizacao_limpar():
@@ -856,19 +794,19 @@ def autorizacao_limpar():
                 db.session.query(ItemEstoque).delete()
                 db.session.commit()
                 flash('AUTORIZAÇÃO CONCEDIDA! TODO O ESTOQUE FOI APAGADO COM SUCESSO!', 'success')
-                return redirect(url_for('estoque'))
+                return redirect(url_for('main.estoque'))
             except Exception as e:
                 db.session.rollback()
                 flash(f'Ocorreu um erro ao tentar limpar o estoque: {e}', 'danger')
-                return redirect(url_for('estoque'))
+                return redirect(url_for('main.estoque'))
         else:
             flash('Autorização negada. Usuário ou senha incorretos.', 'danger')
-            return redirect(url_for('autorizacao_limpar'))
+            return redirect(url_for('main.autorizacao_limpar'))
 
     # Para o método GET, renderiza a página de confirmação
     return render_template('confirmar_limpar_estoque.html')
 
-@app.route('/relatorio/etapas')
+@main.route('/relatorio/etapas')
 @login_required
 def relatorio_etapas():
     """Página para visualizar um resumo das movimentações agrupadas por etapa."""
@@ -883,9 +821,9 @@ def relatorio_etapas():
 
     except Exception as e:
         flash(f'Erro ao gerar o relatório por etapas: {e}', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('main.dashboard'))
 
-@app.route('/relatorio/etapa/<path:etapa_nome>')
+@main.route('/relatorio/etapa/<path:etapa_nome>')
 @login_required
 def relatorio_etapa_detalhe(etapa_nome):
     """Página para exibir os detalhes das movimentações de uma etapa específica."""
@@ -899,11 +837,11 @@ def relatorio_etapa_detalhe(etapa_nome):
         return render_template('relatorio_etapa_detalhe.html', movimentacoes=movimentacoes, etapa_nome=etapa_nome)
     except Exception as e:
         flash(f'Erro ao carregar detalhes da etapa: {e}', 'danger')
-        return redirect(url_for('relatorio_etapas'))
+        return redirect(url_for('main.relatorio_etapas'))
 
 # --- ROTAS DE GERENCIAMENTO DE USUÁRIOS (ADMIN) ---
 
-@app.route('/admin/usuarios')
+@main.route('/admin/usuarios')
 @login_required
 @admin_required
 def gerenciar_usuarios():
@@ -911,7 +849,7 @@ def gerenciar_usuarios():
     users = User.query.order_by(User.username).all()
     return render_template('admin_usuarios.html', users=users)
 
-@app.route('/admin/usuario/novo', methods=['GET', 'POST'])
+@main.route('/admin/usuario/novo', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def criar_usuario():
@@ -923,22 +861,22 @@ def criar_usuario():
 
         if not username or not password or not role:
             flash('Todos os campos são obrigatórios.', 'danger')
-            return redirect(url_for('criar_usuario'))
+            return redirect(url_for('main.criar_usuario'))
 
         if User.query.filter_by(username=username).first():
             flash('Este nome de usuário já está em uso.', 'danger')
-            return redirect(url_for('criar_usuario'))
+            return redirect(url_for('main.criar_usuario'))
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         new_user = User(username=username, password_hash=hashed_password, role=role)
         db.session.add(new_user)
         db.session.commit()
         flash(f'Usuário "{username}" criado com sucesso!', 'success')
-        return redirect(url_for('gerenciar_usuarios'))
+        return redirect(url_for('main.gerenciar_usuarios'))
 
-    return render_template('form_usuario.html', title="Criar Novo Usuário", action_url=url_for('criar_usuario'))
+    return render_template('form_usuario.html', title="Criar Novo Usuário", action_url=url_for('main.criar_usuario'))
 
-@app.route('/admin/usuario/editar/<int:user_id>', methods=['GET', 'POST'])
+@main.route('/admin/usuario/editar/<int:user_id>', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def editar_usuario(user_id):
@@ -955,11 +893,11 @@ def editar_usuario(user_id):
 
         db.session.commit()
         flash(f'Usuário "{user.username}" atualizado com sucesso!', 'success')
-        return redirect(url_for('gerenciar_usuarios'))
+        return redirect(url_for('main.gerenciar_usuarios'))
 
-    return render_template('form_usuario.html', title="Editar Usuário", user=user, action_url=url_for('editar_usuario', user_id=user_id))
+    return render_template('form_usuario.html', title="Editar Usuário", user=user, action_url=url_for('main.editar_usuario', user_id=user_id))
 
-@app.route('/admin/usuario/excluir/<int:user_id>')
+@main.route('/admin/usuario/excluir/<int:user_id>')
 @login_required
 @admin_required
 def excluir_usuario(user_id):
@@ -967,33 +905,32 @@ def excluir_usuario(user_id):
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         flash('Você não pode excluir a si mesmo.', 'danger')
-        return redirect(url_for('gerenciar_usuarios'))
+        return redirect(url_for('main.gerenciar_usuarios'))
     db.session.delete(user)
     db.session.commit()
     flash(f'Usuário "{user.username}" excluído com sucesso.', 'success')
-    return redirect(url_for('gerenciar_usuarios'))
+    return redirect(url_for('main.gerenciar_usuarios'))
 
 # --- ROTAS DE AUTENTICAÇÃO ---
 
-@app.route('/login', methods=['GET', 'POST'])
+@main.route('/login', methods=['GET', 'POST'])
 def login():
     # Se o usuário já estiver logado, redireciona para o dashboard
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for('main.index'))
     if request.method == 'POST':
         user = User.query.filter_by(username=request.form.get('username')).first()
         if user and bcrypt.check_password_hash(user.password_hash, request.form.get('password')):
             login_user(user)
             next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('dashboard'))
+            return redirect(next_page) if next_page else redirect(url_for('main.dashboard'))
         else:
             flash('Login sem sucesso. Verifique o nome de usuário e a senha.', 'danger')
     return render_template('login.html')
 
-@app.route('/logout')
+@main.route('/logout')
 @login_required
 def logout():
     logout_user()
     flash('Você saiu do sistema com sucesso.', 'info')
-    return redirect(url_for('login'))
-       
+    return redirect(url_for('main.login'))
