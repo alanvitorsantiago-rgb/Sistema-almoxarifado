@@ -6,10 +6,11 @@ from sqlalchemy import pool
 from alembic import context
 
 # Import your Flask app and the db object
-from app import app, db
+# Import a função create_app e o objeto db
+from app import create_app, db
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# Cria uma instância do app para o Alembic poder acessar as configurações
+app = create_app('production')
 config = context.config
 
 # Interpret the config file for Python logging.
@@ -17,7 +18,9 @@ config = context.config
 # fileConfig(config.config_file_name)
 
 # Set the target metadata from your models
-target_metadata = db.metadata
+# Importa os models para que o Alembic os reconheça
+from app.models import User, ItemEstoque, Movimentacao, EstoqueDetalhe
+target_metadata = db.metadata 
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -37,16 +40,17 @@ def run_migrations_offline():
     script output.
 
     """
-    url = app.config['SQLALCHEMY_DATABASE_URI']
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
+    with app.app_context():
+        url = config.get_main_option("sqlalchemy.url")
+        context.configure(
+            url=url,
+            target_metadata=target_metadata,
+            literal_binds=True,
+            dialect_opts={"paramstyle": "named"},
+        )
 
-    with context.begin_transaction():
-        context.run_migrations()
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 def run_migrations_online():
@@ -56,19 +60,20 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # This block is needed to use the app's context
+    with app.app_context():
+        connectable = db.get_engine()
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        with connectable.connect() as connection:
+            context.configure(
+                connection=connection, 
+                target_metadata=target_metadata,
+                # Necessário para o SQLite
+                render_as_batch=True
+            )
 
-        with context.begin_transaction():
-            context.run_migrations()
+            with context.begin_transaction():
+                context.run_migrations()
 
 
 if context.is_offline_mode():

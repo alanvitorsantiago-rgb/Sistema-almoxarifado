@@ -12,7 +12,7 @@ services:
     plan: free # 'free' planeja expirar em 90 dias. Use um plano pago para produção.
     pythonVersion: "3.11"
     buildCommand: "./build.sh"
-    startCommand: "gunicorn app:app --log-file -"
+    startCommand: "gunicorn run:app"
     envVars:
       - key: SECRET_KEY
         generateValue: true # Render irá gerar uma chave segura automaticamente
