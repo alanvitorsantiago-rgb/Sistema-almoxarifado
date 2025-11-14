@@ -12,7 +12,7 @@ from . import db, bcrypt
 from .models import User, ItemEstoque, Movimentacao, EstoqueDetalhe
 from functools import wraps
 
-main = Blueprint('main', __name__)
+main = Blueprint('main', __name__, template_folder='templates')
 
 # --- DECORADOR PARA ROTAS DE ADMIN ---
 def admin_required(f):
@@ -89,13 +89,13 @@ def dashboard():
     # --- Dados para Alertas de Validade ---
     data_limite_proximos = hoje + timedelta(days=40)
 
-    # Lotes que vencem exatamente hoje e têm quantidade
+    # Lotes que vencem hoje com quantidade
     lotes_vencendo_hoje = EstoqueDetalhe.query.filter(
         EstoqueDetalhe.validade == hoje,
         EstoqueDetalhe.quantidade > 0
     ).order_by(EstoqueDetalhe.item_estoque_id).all()
 
-    # Lotes que vencem nos próximos 40 dias (excluindo hoje) e têm quantidade
+    # Lotes que vencem nos próximos 40 dias (excluindo hoje) com quantidade
     lotes_proximo_vencimento = EstoqueDetalhe.query.filter(
         EstoqueDetalhe.validade > hoje,
         EstoqueDetalhe.validade <= data_limite_proximos,
@@ -154,7 +154,7 @@ def cadastro():
         try:
             qtd_entrada = float(qtd_entrada)
             if qtd_entrada <= 0:
-                flash('A quantidade de entrada deve ser um número inteiro positivo.', 'danger')
+                flash('A quantidade de entrada deve ser um número positivo.', 'danger')
                 return redirect(url_for('main.cadastro'))
         except (ValueError, TypeError):
             flash('A quantidade de entrada deve ser um número válido.', 'danger')
@@ -165,7 +165,7 @@ def cadastro():
             flash(f'Item com o código "{codigo}" já existe no estoque. Use a tela de movimentação para adicionar mais lotes.', 'warning')
             return redirect(url_for('main.cadastro'))
 
-        # Converte validade
+        # Converte a data de validade
         validade = datetime.strptime(validade_str, '%Y-%m-%d').date() if validade_str else None
 
         # Cria um novo objeto ItemEstoque
@@ -233,7 +233,7 @@ def estoque():
             )
         )
 
-    # Implementação da Paginação
+    # Implementação da paginação
     page = request.args.get('page', 1, type=int)
     per_page = 25 # Itens por página
     pagination = query.order_by(ItemEstoque.data_cadastro.desc()).paginate(page=page, per_page=per_page, error_out=False)
@@ -302,7 +302,7 @@ def excluir_item(item_id):
     # Adicionar verificação se o item tem movimentações? (Opcional)
     db.session.delete(item)
     db.session.commit()
-    flash(f'Item "{item.descricao}" e todo o seu histórico foram excluídos com sucesso.', 'success')
+    flash(f'Item "{item.descricao}" e todo o seu histórico foram excluídos com sucesso!', 'success')
     return redirect(url_for('main.estoque'))
 
 @main.route('/movimentacao', methods=['GET', 'POST'])
@@ -714,7 +714,7 @@ def importar():
             return redirect(url_for('main.estoque'))
 
         else:
-            flash('Formato de arquivo inválido. Por favor, envie um arquivo .xlsx', 'danger')
+            flash('Formato de arquivo inválido. Por favor, envie um arquivo .xlsx.', 'danger')
             return redirect(request.url)
 
     return render_template('importar.html')
@@ -908,7 +908,7 @@ def excluir_usuario(user_id):
         return redirect(url_for('main.gerenciar_usuarios'))
     db.session.delete(user)
     db.session.commit()
-    flash(f'Usuário "{user.username}" excluído com sucesso.', 'success')
+    flash(f'Usuário "{user.username}" excluído com sucesso!', 'success')
     return redirect(url_for('main.gerenciar_usuarios'))
 
 # --- ROTAS DE AUTENTICAÇÃO ---
