@@ -25,10 +25,17 @@ migrate = Migrate()
 def configure_app(app_instance):
     """Configura a aplicação Flask."""
     # Chave secreta para sessões e mensagens flash
-    app_instance.config['SECRET_KEY'] = 'sua-chave-secreta-super-segura' 
+    app_instance.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'uma-chave-padrao-para-desenvolvimento') 
     
-    # Configuração do banco de dados SQLite
-    app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+    # Configuração do banco de dados: usa DATABASE_URL (PostgreSQL no Render) se disponível, senão usa SQLite local.
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url:
+        # A URL do Render vem como 'postgres://...', mas SQLAlchemy prefere 'postgresql://...'
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        app_instance.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    else:
+        app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+        
     app_instance.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app_instance)
@@ -841,22 +848,26 @@ def exportar_excel():
         flash(f'Erro ao gerar o relatório: {e}', 'danger')
         return redirect(url_for('estoque'))
 
-@app.route('/limpar-estoque-completo', methods=['GET', 'POST'])
+@app.route('/autorizacao/limpar', methods=['GET', 'POST'])
 @admin_required
 @login_required
-def limpar_estoque_completo():
+def autorizacao_limpar():
     """
-    Exibe uma página de confirmação (GET) e, após validação de credenciais
+    Exibe uma página de autorização (GET) e, após validação de credenciais
     específicas (POST), apaga todos os registros de estoque.
+    Apenas o usuário 'ALAN OLIVEIRA' pode realizar esta ação.
     """
     if request.method == 'POST':
         auth_user = request.form.get('auth_user')
         auth_password = request.form.get('auth_password')
 
-        # Validação das credenciais específicas para esta ação
-        if auth_user == 'ALAN OLIVEIRA' and auth_password == '251216':
+        # Credencial de senha do ambiente
+        CLEAN_PASS = os.environ.get('CLEAN_STOCK_PASSWORD')
+
+        # Validação: usuário deve ser 'ALAN OLIVEIRA' e a senha deve corresponder à variável de ambiente
+        if auth_user == 'ALAN OLIVEIRA' and auth_password == CLEAN_PASS:
             try:
-                # A ordem é importante: primeiro os 'filhos', depois os 'pais'
+                # A ordem é importante para respeitar as chaves estrangeiras
                 db.session.query(Movimentacao).delete()
                 db.session.query(EstoqueDetalhe).delete()
                 db.session.query(ItemEstoque).delete()
@@ -869,9 +880,9 @@ def limpar_estoque_completo():
                 return redirect(url_for('estoque'))
         else:
             flash('Autorização negada. Usuário ou senha incorretos.', 'danger')
-            return redirect(url_for('limpar_estoque_completo'))
+            return redirect(url_for('autorizacao_limpar'))
 
-    # Para o método GET, apenas renderiza a página de confirmação
+    # Para o método GET, renderiza a página de confirmação
     return render_template('confirmar_limpar_estoque.html')
 
 @app.route('/relatorio/etapas')

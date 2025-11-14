@@ -31,7 +31,7 @@
                     <p class="mb-0">Esta ação é recomendada apenas para iniciar um novo inventário do zero e não pode ser desfeita.</p>
                 </div>
 
-                <form method="POST" action="{{ url_for('limpar_estoque_completo') }}">
+                <form method="POST" action="{{ url_for('autorizacao_limpar') }}">
                     <div class="mb-3">
                         <label for="auth_user" class="form-label">Usuário de Autorização</label>
                         <input type="text" class="form-control" id="auth_user" name="auth_user" required>

@@ -8,7 +8,7 @@
     <div class="btn-group">
         <a href="{{ url_for('cadastro') }}" class="btn btn-primary">Adicionar Novo Item</a>
         {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('limpar_estoque_completo') }}" class="btn btn-danger" onclick="return confirm('ATENÇÃO! Você tem certeza que deseja apagar TODO o estoque, incluindo todos os itens, lotes e históricos de movimentação? Esta ação é IRREVERSÍVEL e é recomendada apenas para iniciar um novo inventário.');"><i class="fas fa-skull-crossbones"></i> Limpar Estoque</a>
+        <a href="{{ url_for('autorizacao_limpar') }}" class="btn btn-danger"><i class="fas fa-skull-crossbones"></i> Limpar Estoque</a>
         {% endif %}
     </div>
 </div>
