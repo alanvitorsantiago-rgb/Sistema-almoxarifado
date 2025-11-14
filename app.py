@@ -3,7 +3,7 @@
 import os
 from sqlalchemy import or_, func
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
 from models import db, User, ItemEstoque, Movimentacao, EstoqueDetalhe
 from functools import wraps 
@@ -11,10 +11,16 @@ from zoneinfo import ZoneInfo # Importa a biblioteca para trabalhar com fusos ho
 from datetime import datetime, date, timedelta
 import pandas as pd
 import io
+from flask_migrate import Migrate # Importa o Flask-Migrate
 
 # --- INICIALIZAÇÃO E CONFIGURAÇÃO DA APLICAÇÃO ---
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
+
+# Inicializa as extensões para serem usadas em toda a aplicação
+bcrypt = Bcrypt()
+login_manager = LoginManager()
+migrate = Migrate()
 
 def configure_app(app_instance):
     """Configura a aplicação Flask."""
@@ -25,17 +31,13 @@ def configure_app(app_instance):
     app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
     app_instance.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # Inicializa as extensões com a aplicação
     db.init_app(app_instance)
     bcrypt.init_app(app_instance)
+    migrate.init_app(app_instance, db) # Inicializa o Flask-Migrate
     login_manager.init_app(app_instance)
-
-# Inicializa as extensões sem a aplicação para serem configuradas depois
-bcrypt = Bcrypt()
-login_manager = LoginManager()
-login_manager.login_view = 'login'  # Rota para redirecionar usuários não logados
-login_manager.login_message = "Por favor, faça login para acessar esta página."
-login_manager.login_message_category = 'info'
+    login_manager.login_view = 'login'  # Rota para redirecionar usuários não logados
+    login_manager.login_message = "Por favor, faça login para acessar esta página."
+    login_manager.login_message_category = 'info'
 
 configure_app(app)
 

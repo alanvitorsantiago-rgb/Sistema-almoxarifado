@@ -4,4 +4,4 @@ set -o errexit
 
 pip install -r requirements.txt
 
-FLASK_APP=app.py flask db upgrade
+FLASK_APP=run.py flask db upgrade
