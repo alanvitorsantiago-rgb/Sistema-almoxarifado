@@ -6,7 +6,7 @@ Substitui as operações SQLAlchemy mantendo a mesma interface
 """
 
 from typing import Optional, Dict, List, Any
-from supabase_client import supabase, select_one, select_many, insert_one, update_one, delete_one
+from Sistema-almoxarifado.supabase_client import supabase, select_one, select_many, insert_one, update_one, delete_one
 from flask import abort
 
 

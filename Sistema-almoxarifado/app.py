@@ -14,7 +14,7 @@ import numpy as np
 # Importa o modelo de suavização exponencial para previsão
 # from statsmodels.tsa.api import ExponentialSmoothing  # REMOVIDO POR LIMITE DE TAMANHO VERCEL
 import io
-from flask_socketio import SocketIO
+# from flask_socketio import SocketIO # REMOVIDO PARA COMPATIBILIDADE VERCEL
 import unicodedata
 
 # --- INICIALIZAÇÃO E CONFIGURAÇÃO DA APLICAÇÃO ---
@@ -35,13 +35,13 @@ def configure_app(app_instance):
     
     # Inicializa as extensões com a aplicação
     bcrypt.init_app(app_instance)
-    socketio.init_app(app_instance)
+    # socketio.init_app(app_instance) # REMOVIDO PARA COMPATIBILIDADE VERCEL
     login_manager.init_app(app_instance)
 
 # Inicializa as extensões sem a aplicação para serem configuradas depois
 bcrypt = Bcrypt()
 login_manager = LoginManager()
-socketio = SocketIO()
+# socketio = SocketIO() # REMOVIDO PARA COMPATIBILIDADE VERCEL
 login_manager.login_view = 'login'  # Rota para redirecionar usuários não logados
 login_manager.login_message = "Por favor, faça login para acessar esta página."
 login_manager.login_message_category = 'info'
@@ -49,7 +49,11 @@ login_manager.login_message_category = 'info'
 configure_app(app)
 
 def check_admin_user():
-    """Garante que o usuário admin exista."""
+    """Garante que o usuário admin exista se as variáveis de ambiente estiverem presentes."""
+    if not os.getenv('SUPABASE_URL') or not os.getenv('SUPABASE_SERVICE_KEY'):
+        print("⚠️ Variáveis do Supabase não encontradas. Pulando verificação de admin.")
+        return
+
     try:
         admin_user = get_user_by_username('admin')
         if not admin_user:
@@ -58,12 +62,14 @@ def check_admin_user():
             create_user(username='admin', password_hash=hashed_password, role='admin')
             print("✅ Usuário 'admin' criado com a senha 'admin'.")
         else:
-             print("✅ Sistema inicializado. Conexão Supabase OK.")
+             print("✅ Conexão Supabase OK.")
     except Exception as e:
         print(f"⚠️ Erro ao verificar admin: {e}")
 
-with app.app_context():
-    check_admin_user()
+# Só executa se não estiver em ambiente Vercel/Produção ou se for explicitamente necessário
+if os.getenv('FLASK_ENV') != 'production' and os.getenv('SUPABASE_URL'):
+    with app.app_context():
+        check_admin_user()
 
 @login_manager.user_loader
 def load_user(user_id):
