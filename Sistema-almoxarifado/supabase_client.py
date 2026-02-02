@@ -17,15 +17,17 @@ load_dotenv('.env.supabase')
 SUPABASE_URL: str = os.getenv('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY: str = os.getenv('SUPABASE_SERVICE_KEY', '')
 
-if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise ValueError(
-        "❌ SUPABASE_URL e SUPABASE_SERVICE_KEY são obrigatórios no arquivo .env.supabase"
-    )
-
-# Inicializa o cliente Supabase (singleton)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
-print("✅ Cliente Supabase inicializado com sucesso (HTTPS/443)")
+# Inicializa o cliente Supabase (inicialização segura para Vercel)
+# Se não houver chaves agora, o objeto 'supabase' será None ou falhará apenas ao ser usado.
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        print("✅ Cliente Supabase inicializado com sucesso (HTTPS/443)")
+    except Exception as e:
+        print(f"⚠️ Erro ao criar cliente Supabase: {e}")
+else:
+    print("⚠️ SUPABASE_URL ou SUPABASE_SERVICE_KEY não encontrados. O cliente será inicializado sem conexão.")
 
 
 # ============================================================
@@ -206,6 +208,8 @@ def test_connection() -> bool:
         True se conectado com sucesso
     """
     try:
+        if not supabase:
+             return False
         # Tenta fazer uma query simples
         response = supabase.table('user').select('count', count='exact').execute()
         print(f"✅ Conexão OK - {response.count} usuários encontrados")
