@@ -29,8 +29,8 @@ timeout /t 3 /nobreak > nul
 start http://127.0.0.1:5000
 
 REM Inicia o ngrok em uma nova janela para criar o tunel publico.
-echo Iniciando o tunel ngrok...
-start "ngrok" ngrok http 5000
+REM echo Iniciando o tunel ngrok...
+REM start "ngrok" ngrok http 5000
 
 REM Inicia a aplicacao Flask diretamente com Python para garantir que o bloco __main__ seja executado.
 python app.py

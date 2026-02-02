@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+
+{% block title %}Detalhes da Etapa - {{ etapa_nome }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h3>Detalhes da Etapa</h3>
+        <p class="lead mb-0">Exibindo movimentações para: <strong class="text-primary">{{ etapa_nome }}</strong></p>
+    </div>
+    <a href="{{ url_for('relatorio_etapas') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar ao Resumo</a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover" style="vertical-align: middle;">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Item</th>
+                        <th>Tipo</th>
+                        <th class="text-center">Quantidade</th>
+                        <th>Lote / Item NF</th>
+                        <th>Data</th>
+                        <th>Usuário</th>
+                        <th>Observação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mov in movimentacoes %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('historico', item_id=mov.item_id) }}">{{ mov.item.descricao }}</a>
+                            <small class="d-block text-muted">{{ mov.item.codigo }}</small>
+                        </td>
+                        <td>
+                            {% if mov.tipo == 'ENTRADA' %}<span class="badge bg-success">ENTRADA</span>
+                            {% else %}<span class="badge bg-danger">SAÍDA</span>{% endif %}
+                        </td>
+                        <td class="text-center fw-bold">{{ "%.2f"|format(mov.quantidade) }}</td>
+                        <td>{{ mov.lote or 'N/A' }} / {{ mov.item_nf or 'N/A' }}</td>
+                        <td>{{ mov.data_movimentacao.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td>{{ mov.usuario or 'Sistema' }}</td>
+                        <td>{{ mov.observacao or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-center py-4">Nenhuma movimentação encontrada para esta etapa.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

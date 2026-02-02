@@ -1,0 +1,233 @@
+<!-- /templates/movimentacao.html -->
+{% extends 'base.html' %}
+
+{% block title %}Registrar Movimentação - Almoxarifado{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Registrar Movimentação de Estoque</h3>
+    </div>
+    <div class="card-body">
+        <!-- 1. Busca do Item -->
+        <div class="row g-3 align-items-end border-bottom pb-3 mb-3">
+            <div class="col-md-4">
+                <label for="codigo_busca" class="form-label">CÓDIGO do Item*</label>
+                <input type="text" class="form-control" id="codigo_busca" placeholder="Digite o código e clique em buscar">
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-primary" id="btn_buscar_item"><i class="fas fa-search"></i> Buscar Item</button>
+            </div>
+            <div class="col" id="feedback_busca"></div>
+        </div>
+
+        <!-- 2. Formulário Principal (inicialmente oculto) -->
+        <form action="{{ url_for('movimentacao') }}" method="post" id="form_movimentacao" class="d-none">
+            <input type="hidden" id="item_id" name="item_id">
+
+            <!-- Detalhes do Item (preenchido automaticamente) -->
+            <div class="mb-4 p-3 rounded border text-light">
+                <h5>Detalhes do Item</h5>
+                <div class="row">
+                    <div class="col-md-8"><strong>Descrição:</strong> <span id="detalhe_descricao"></span></div>
+                    <div class="col-md-4"><strong>Cód. Estoc:</strong> <span id="detalhe_id"></span></div>
+                    <div class="col-md-4"><strong>UN:</strong> <span id="detalhe_un"></span></div>
+                    <div class="col-md-4"><strong>Dimensão:</strong> <span id="detalhe_dimensao"></span></div>
+                    <div class="col-md-4"><strong>Cliente:</strong> <span id="detalhe_cliente"></span></div>
+                </div>
+            </div>
+
+            <!-- Seleção do Tipo de Movimentação -->
+            <div class="mb-3">
+                <label class="form-label">Tipo de Movimentação*</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="tipo" id="tipo_entrada" value="ENTRADA" required>
+                    <label class="form-check-label" for="tipo_entrada">Entrada</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="tipo" id="tipo_saida" value="SAIDA" required>
+                    <label class="form-check-label" for="tipo_saida">Saída</label>
+                </div>
+            </div>
+
+            <!-- Campos de ENTRADA (inicialmente oculto) -->
+            <div id="campos_entrada" class="d-none p-3 mb-3 rounded border text-light">
+                <h5 class="mb-3">Dados da Entrada</h5>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="lote" class="form-label">LOTE*</label>
+                        <input type="text" class="form-control" id="lote" name="lote">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="item_nf" class="form-label">ITEM NF*</label>
+                        <input type="text" class="form-control" id="item_nf" name="item_nf">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="nf" class="form-label">NF</label>
+                        <input type="text" class="form-control" id="nf" name="nf">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="validade" class="form-label">VALIDADE</label>
+                        <input type="date" class="form-control" id="validade" name="validade">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campos de SAÍDA (inicialmente oculto) -->
+            <div id="campos_saida" class="d-none p-3 mb-3 rounded border text-light">
+                <h5 class="mb-3">Dados da Saída (FIFO)</h5>
+                <div class="col-md-6">
+                    <label for="detalhe_id_saida" class="form-label">Selecione o Lote/Item NF para dar baixa*</label>
+                    <select class="form-select" id="detalhe_id_saida" name="detalhe_id"></select>
+                </div>
+            </div>
+
+            <!-- Campos Gerais de Movimentação (Etapa, Observação, Quantidade) -->
+            <hr>
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="etapa" class="form-label">Etapa de Destino*</label>
+                    <select class="form-select" id="etapa" name="etapa" required>
+                        <option value="" selected disabled>Selecione a etapa...</option>
+                        <option value="Etapa 1 - Almoxarifado">Etapa 1 - Almoxarifado</option>
+                        <option value="Etapa 2 - Usinagem CNC">Etapa 2 - Usinagem CNC</option>
+                        <option value="Etapa 3 - Preparação e Acabanento">Etapa 3 - Preparação e Acabamento</option>
+                        <option value="Etapa 4 - Preenchimento de Núcleos">Etapa 4 - Preenchimento de Núcleos</option>
+                        <option value="Etapa 5 - Fabricação de Pisos">Etapa 5 - Fabricação de Pisos</option>
+                        <option value="Etapa 6 - Ajuste e Montagem">Etapa 6 - Ajuste e Montagem</option>
+                        <option value="Etapa 7 - Proteção de Superfícies">Etapa 7 - Proteção de Superfícies</option>
+                        <option value="Etapa 8 - Qualidade">Etapa 8 - Qualidade</option>
+                        <option value="Etapa 9 - Recebimento - Embalagem - Expedição">Etapa 9 - Recebimento - Embalagem - Expedição</option>
+                        <option value="Etapa 10 - Manutenção">Etapa 10 - Manutenção</option>
+                        <option value="Etapa 11 - Tratamento Térmico">Etapa 11 - Tratamento Térmico</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="quantidade" class="form-label">Quantidade*</label>
+                    <input type="number" class="form-control" id="quantidade" name="quantidade" required min="0.0001" step="0.0001">
+                </div>
+                <div class="col-md-5">
+                    <label for="observacao" class="form-label">Observação</label>
+                    <input type="text" class="form-control" id="observacao" name="observacao" placeholder="Opcional: adicione uma observação...">
+                </div>
+                <div class="col-12 mt-3">
+                    <button type="submit" class="btn btn-success">Registrar Movimentação</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const btnBuscar = document.getElementById('btn_buscar_item');
+    const codigoInput = document.getElementById('codigo_busca');
+    const feedbackBusca = document.getElementById('feedback_busca');
+    const formMovimentacao = document.getElementById('form_movimentacao');
+
+    const camposEntrada = document.getElementById('campos_entrada');
+    const camposSaida = document.getElementById('campos_saida');
+    const radioEntrada = document.getElementById('tipo_entrada');
+    const radioSaida = document.getElementById('tipo_saida');
+
+    // Função para buscar o item
+    async function buscarItem() {
+        const codigo = codigoInput.value.trim();
+        if (!codigo) {
+            feedbackBusca.innerHTML = '<span class="text-danger">Por favor, digite um código.</span>';
+            return;
+        }
+
+        feedbackBusca.innerHTML = '<span class="text-info">Buscando...</span>';
+        formMovimentacao.classList.add('d-none'); // Oculta o formulário ao buscar
+
+        try {
+            const response = await fetch(`/api/item/by-code/${codigo}`);
+            if (!response.ok) {
+                throw new Error('Item não encontrado.');
+            }
+            const item = await response.json();
+
+            // Preenche os detalhes do item
+            document.getElementById('item_id').value = item.id;
+            document.getElementById('detalhe_id').textContent = item.id;
+            document.getElementById('detalhe_descricao').textContent = item.descricao;
+            document.getElementById('detalhe_un').textContent = item.un || 'N/A';
+            document.getElementById('detalhe_dimensao').textContent = item.dimensao || 'N/A';
+            document.getElementById('detalhe_cliente').textContent = item.cliente || 'N/A';
+
+            // Exibe o formulário e limpa o feedback
+            formMovimentacao.classList.remove('d-none');
+            feedbackBusca.innerHTML = `<span class="text-success">Item <strong>${item.descricao}</strong> encontrado!</span>`;
+
+            // Busca os lotes para a opção de saída
+            buscarLotes(item.id);
+
+        } catch (error) {
+            feedbackBusca.innerHTML = `<span class="text-danger">${error.message}</span>`;
+        }
+    }
+
+    // Função para buscar os lotes (para o select de saída)
+    async function buscarLotes(itemId) {
+        const selectLotes = document.getElementById('detalhe_id_saida');
+        selectLotes.innerHTML = '<option value="">Carregando lotes...</option>';
+
+        try {
+            const response = await fetch(`/api/item/${itemId}/lotes`);
+            if (!response.ok) throw new Error('Não foi possível carregar os lotes.');
+            
+            const lotes = await response.json();
+            selectLotes.innerHTML = '<option value="">Selecione um lote...</option>';
+
+            if (lotes.length === 0) {
+                selectLotes.innerHTML = '<option value="">Nenhum lote com saldo encontrado.</option>';
+                radioSaida.disabled = true; // Desabilita saída se não há lotes
+            } else {
+                radioSaida.disabled = false;
+                lotes.forEach(lote => {
+                    const option = document.createElement('option');
+                    option.value = lote.id;
+                    // Texto: Lote: X | Item NF: Y | Qtd: Z | Val: DD/MM/YYYY
+                    option.textContent = `Lote: ${lote.lote} | Item NF: ${lote.item_nf} | Qtd: ${lote.quantidade} | Val: ${lote.validade}`;
+                    selectLotes.appendChild(option);
+                });
+            }
+        } catch (error) {
+            selectLotes.innerHTML = `<option value="">${error.message}</option>`;
+        }
+    }
+
+    // Event Listeners
+    btnBuscar.addEventListener('click', buscarItem);
+    codigoInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Impede o envio do formulário
+            buscarItem();
+        }
+    });
+
+    // Lógica para mostrar/ocultar campos de entrada/saída
+    function toggleMovimentacaoFields() {
+        if (radioEntrada.checked) {
+            camposEntrada.classList.remove('d-none');
+            camposSaida.classList.add('d-none');
+            // Torna os campos de entrada obrigatórios
+            document.getElementById('lote').required = true;
+            document.getElementById('item_nf').required = true;
+            document.getElementById('detalhe_id_saida').required = false;
+        } else if (radioSaida.checked) {
+            camposEntrada.classList.add('d-none');
+            camposSaida.classList.remove('d-none');
+            // Torna os campos de saída obrigatórios
+            document.getElementById('lote').required = false;
+            document.getElementById('item_nf').required = false;
+            document.getElementById('detalhe_id_saida').required = true;
+        }
+    }
+
+    radioEntrada.addEventListener('change', toggleMovimentacaoFields);
+    radioSaida.addEventListener('change', toggleMovimentacaoFields);
+});
+</script>
+{% endblock %}

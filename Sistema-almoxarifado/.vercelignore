@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+.venv
+.env*
+*.log
+*.bat
+*.db
+database.db
+ngrok.exe
+iniciar_servidor.bat
+backups/

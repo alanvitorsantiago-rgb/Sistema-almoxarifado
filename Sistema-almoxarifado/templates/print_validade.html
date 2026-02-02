@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Validade - Impressão</title>
+    <style>
+        /* Reset básico e configurações de página A4 */
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #000;
+            background: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            margin: 0;
+            text-transform: uppercase;
+        }
+
+        .header h2 {
+            font-size: 14px;
+            margin: 5px 0 0 0;
+            font-weight: normal;
+        }
+
+        .meta-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 11px;
+            color: #444;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 6px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            color: #000;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        /* Destaques visuais para impressão */
+        .vencido {
+            font-weight: bold;
+            color: #d00;
+        }
+
+        .critico {
+            font-weight: bold;
+        }
+
+        .footer {
+            margin-top: 30px;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+            text-align: center;
+            font-size: 10px;
+            color: #666;
+        }
+
+        /* Utilitários */
+        .text-center {
+            text-align: center;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body onload="window.print()">
+
+    <div class="header">
+        <!-- Espaço para Logo se houver, usando texto por enquanto -->
+        <h1>SERCO - Gerenciamento de Almoxarifado</h1>
+        <h2>Relatório de Controle de Validade - Etiqueta Vermelha (40 Dias)</h2>
+    </div>
+
+    <div class="meta-info">
+        <span><strong>Emitido por:</strong> {{ current_user.username }}</span>
+        <span><strong>Data de Emissão:</strong> {{ today_date.strftime('%d/%m/%Y') }}</span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th width="8%">Código</th>
+                <th width="24%">Descrição</th>
+                <th width="12%">Lote</th>
+                <th width="14%">Local</th>
+                <th width="10%">Item NF / NF</th>
+                <th width="10%" class="text-center">Validade</th>
+                <th width="10%" class="text-center">Dias Restant.</th>
+                <th width="8%" class="text-center">Qtd.</th>
+                <th width="10%" class="text-center">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lote in lotes %}
+            {% set dias_restantes = (lote.validade - today_date).days %}
+            <tr>
+                <td>{{ lote.item_estoque.codigo }}</td>
+                <td>{{ lote.item_estoque.descricao }}</td>
+                <td>{{ lote.lote }}</td>
+                <td>{{ lote.item_estoque.endereco or '-' }} / {{ lote.estacao or '-' }}</td>
+                <td>{{ lote.item_nf or '' }} / {{ lote.nf or '' }}</td>
+                <td class="text-center">{{ lote.validade.strftime('%d/%m/%Y') }}</td>
+                <td class="text-center {% if dias_restantes < 0 %}vencido{% endif %}">
+                    {{ dias_restantes }} dias
+                </td>
+                <td class="text-center">{{ lote.quantidade }}</td>
+                <td class="text-center">
+                    {% if dias_restantes < 0 %} VENCIDO {% else %} ETIQUETA VERMELHA {% endif %} </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" class="text-center">Nenhum item crítico encontrado.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Este relatório foi gerado automaticamente pelo sistema de gerenciamento de estoque.</p>
+        <p>Página 1 de 1 (Impressão dinâmica)</p>
+    </div>
+
+</body>
+
+</html>

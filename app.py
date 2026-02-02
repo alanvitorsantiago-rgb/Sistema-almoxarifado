@@ -12,7 +12,7 @@ from datetime import datetime, date, timedelta
 import pandas as pd
 import numpy as np
 # Importa o modelo de suavização exponencial para previsão
-from statsmodels.tsa.api import ExponentialSmoothing
+# from statsmodels.tsa.api import ExponentialSmoothing  # REMOVIDO POR LIMITE DE TAMANHO VERCEL
 import io
 from flask_socketio import SocketIO
 import unicodedata
@@ -349,24 +349,35 @@ def api_item_previsao(item_id):
     idx = pd.date_range(df_diario.index.min(), df_diario.index.max())
     df_diario = df_diario.reindex(idx, fill_value=0)
     
-    # 3. Treinar o modelo de Suavização Exponencial
+    # 3. Gerar previsão usando Regressão Linear Simples (Leve)
     try:
-        model = ExponentialSmoothing(df_diario['quantidade'], trend='add', seasonal=None, initialization_method="estimated").fit()
+        # Calcular tendência (x: dias, y: quantidades)
+        n = len(df_diario)
+        if n < 2:
+            return jsonify({'item_id': item_id, 'item_descricao': item.descricao, 'previsao': []})
+
+        x = np.arange(n)
+        y = df_diario['quantidade'].values
         
-        # 4. Gerar a previsão para os próximos 15 dias (ajustável)
+        # Coeficientes da regressão linear: y = mx + b
+        m, b = np.polyfit(x, y, 1)
+        
+        # 4. Gerar a previsão para os próximos 15 dias
         dias_para_prever = 15
-        forecast_result = model.forecast(dias_para_prever)
-        
+        ultimo_dia = df_diario.index.max()
         previsao_data = []
-        for i, value in enumerate(forecast_result):
-            forecast_date = df_diario.index.max() + timedelta(days=i+1)
+        
+        for i in range(1, dias_para_prever + 1):
+            valor_previsto = m * (n + i - 1) + b
+            forecast_date = ultimo_dia + timedelta(days=i)
             previsao_data.append({
                 'data': forecast_date.strftime('%Y-%m-%d'),
-                'quantidade_prevista': max(0, round(value, 2)) # Garante que a previsão não seja negativa
+                'quantidade_prevista': max(0, round(float(valor_previsto), 2))
             })
         
         return jsonify({'item_id': item_id, 'item_descricao': item.descricao, 'previsao': previsao_data})
     except Exception as e:
+        print(f"Erro na previsão linear: {e}")
         return jsonify({'error': f'Erro ao gerar previsão: {e}', 'previsao': []}), 500
 
 def _gerar_previsao_para_item(item_id, dias_para_prever):
@@ -397,19 +408,27 @@ def _gerar_previsao_para_item(item_id, dias_para_prever):
     df_diario = df_diario.reindex(idx, fill_value=0)
     
     try:
-        model = ExponentialSmoothing(df_diario['quantidade'], trend='add', seasonal=None, initialization_method="estimated").fit()
-        forecast_result = model.forecast(dias_para_prever)
+        n = len(df_diario)
+        if n < 2:
+            return {'previsao': []}
+
+        x = np.arange(n)
+        y = df_diario['quantidade'].values
+        m, b = np.polyfit(x, y, 1)
         
+        ultimo_dia = df_diario.index.max()
         previsao_data = []
-        for i, value in enumerate(forecast_result):
-            forecast_date = df_diario.index.max() + timedelta(days=i+1)
+        for i in range(1, dias_para_prever + 1):
+            valor_previsto = m * (n + i - 1) + b
+            forecast_date = ultimo_dia + timedelta(days=i)
             previsao_data.append({
                 'data': forecast_date.strftime('%Y-%m-%d'),
-                'quantidade_prevista': max(0, round(value, 2))
+                'quantidade_prevista': max(0, round(float(valor_previsto), 2))
             })
         
         return {'previsao': previsao_data}
     except Exception as e:
+        print(f"Erro no modelo de previsão linear interna: {e}")
         return {'error': f'Erro no modelo de previsão: {e}', 'previsao': []}
 
 @app.route('/api/sugestoes-compra')
