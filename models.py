@@ -1,132 +1,117 @@
 # /models.py
 
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 
-# Instância do SQLAlchemy, será inicializada no app.py
-db = SQLAlchemy()
+# db = SQLAlchemy() - Removido
 
-class User(db.Model, UserMixin):
+class ModelWrapper:
+    """Class base para envolver dicionários do Supabase como objetos"""
+    def __init__(self, data=None, **kwargs):
+        self._data = data if data else {}
+        self._data.update(kwargs)
+        
+        # Lista de campos que devem ser convertidos para datetime
+        date_fields = ['data_movimentacao', 'data_entrada', 'validade', 'created_at']
+        
+        # Define atributos dinamicamente
+        for key, value in self._data.items():
+            if key in date_fields and isinstance(value, str):
+                try:
+                    # Supabase ISO format usually: '2025-01-30T10:00:00+00:00' or '2025-01-30'
+                    # Handle basic ISO format
+                    if 'T' in value:
+                        # Remove timezone simple if needed or keep it.
+                        # datetime.fromisoformat works well in recent python
+                        value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    else:
+                        # Date only
+                         value = datetime.strptime(value, '%Y-%m-%d').date() if '-' in value else value
+                except (ValueError, TypeError):
+                    pass # Keep as string if parsing fails
+            
+            setattr(self, key, value)
+
+    def to_dict(self):
+        return self._data
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+class User(UserMixin, ModelWrapper):
     """Modelo para os usuários do sistema."""
-    __tablename__ = 'user'
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='user') # 'admin' ou 'user'
-
-class ItemEstoque(db.Model):
-    """
-    Modelo que representa um item no estoque do almoxarifado.
-    """
-    __tablename__ = 'item_estoque'
-
-    id = db.Column(db.Integer, primary_key=True)
-    codigo = db.Column(db.String(50), nullable=False, unique=True)
-    endereco = db.Column(db.String(100))
-    codigo_opcional = db.Column(db.String(50))
-    tipo = db.Column(db.String(50))
-    descricao = db.Column(db.String(255), nullable=False)
-    un = db.Column(db.String(10))
-    dimensao = db.Column(db.String(50))
-    cliente = db.Column(db.String(100))
-    qtd_estoque = db.Column(db.Float, nullable=False, default=0) # Será a soma dos detalhes_estoque
-    estoque_minimo = db.Column(db.Float, nullable=False, default=5) # Novo campo para estoque mínimo
-    estoque_ideal_compra = db.Column(db.Float, nullable=True) # Quantidade ideal para comprar quando atingir o mínimo
-    tempo_reposicao = db.Column(db.Integer, default=7) # Tempo de reposição em dias (lead time)
-    data_cadastro = db.Column(db.DateTime, default=datetime.now)
-
-    def __repr__(self):
-        return f'<ItemEstoque {self.codigo}: {self.descricao}>'
-
-class EstoqueDetalhe(db.Model):
-    """
-    Modelo que representa um detalhe de estoque por lote/NF para um ItemEstoque.
-    Permite rastrear quantidades específicas de lotes para FIFO.
-    """
-    __tablename__ = 'estoque_detalhe'
-
-    id = db.Column(db.Integer, primary_key=True)
-    item_estoque_id = db.Column(db.Integer, db.ForeignKey('item_estoque.id'), nullable=False)
-    lote = db.Column(db.String(100), nullable=False)
-    item_nf = db.Column(db.String(100))
-    nf = db.Column(db.String(100))
-    validade = db.Column(db.Date)
-    estacao = db.Column(db.String(50))
-    status_validade = db.Column(db.String(50))
-    quantidade = db.Column(db.Float, nullable=False, default=0)
-    data_entrada = db.Column(db.DateTime, default=datetime.now) # Para controle FIFO
     
-    # Controle de Status Operacional (Etiqueta Vermelha)
-    status_etiqueta = db.Column(db.String(50), default='PENDENTE') # 'PENDENTE' ou 'CONCLUÍDO'
-    data_etiqueta = db.Column(db.DateTime)
-    usuario_etiqueta = db.Column(db.String(100))
+    def get_id(self):
+        return str(getattr(self, 'id', ''))
+        
+    @property
+    def is_authenticated(self):
+        return True
+        
+    @property
+    def is_active(self):
+        return True
+        
+    @property
+    def is_anonymous(self):
+        return False
 
+class ItemEstoque(ModelWrapper):
+    """Modelo que representa um item no estoque."""
+    pass
 
-    item_estoque = db.relationship('ItemEstoque', backref=db.backref('detalhes_estoque', lazy='dynamic', cascade="all, delete-orphan"))
+class EstoqueDetalhe(ModelWrapper):
+    """Modelo que representa um detalhe de estoque."""
+    @property
+    def item_estoque(self):
+        # Supabase retorna 'item_estoque' como dict aninhado
+        data = self.get('item_estoque')
+        return ItemEstoque(data) if data else None
 
-class Movimentacao(db.Model):
-    """
-    Modelo que representa uma movimentação de estoque (entrada ou saída).
-    """
-    __tablename__ = 'movimentacao'
+class Movimentacao(ModelWrapper):
+    """Modelo que representa uma movimentação de estoque."""
+    @property
+    def item(self):
+        # Mapeia 'item' para 'item_estoque' vindo do Supabase
+        data = self.get('item_estoque')
+        return ItemEstoque(data) if data else None
 
-    id = db.Column(db.Integer, primary_key=True)
-    item_id = db.Column(db.Integer, db.ForeignKey('item_estoque.id'), nullable=False)
-    tipo = db.Column(db.String(10), nullable=False)  # "ENTRADA" ou "SAÍDA"
-    quantidade = db.Column(db.Float, nullable=False)
-    data_movimentacao = db.Column(db.DateTime, default=datetime.now)
-    observacao = db.Column(db.String(255))
-    usuario = db.Column(db.String(100)) # Provisoriamente, será fixo
-    etapa = db.Column(db.String(100)) # Novo campo para a etapa do processo
-    lote = db.Column(db.String(100)) # Para registrar o lote movimentado
-    item_nf = db.Column(db.String(100)) # Para registrar o item_nf movimentado
-    nf = db.Column(db.String(100), nullable=True)
+class ConsumivelEstoque(ModelWrapper):
+    """Modelo que representa um item consumível."""
+    pass
 
-    item = db.relationship('ItemEstoque', backref=db.backref('movimentacoes', lazy='dynamic', cascade="all, delete-orphan"))
+class MovimentacaoConsumivel(ModelWrapper):
+    """Modelo que representa uma movimentação de consumível."""
+    @property
+    def consumivel(self):
+        # Mapeia 'consumivel' para 'consumivel_estoque' (suposição, validar se necessário)
+        # Se a query for select('*, consumivel_estoque(*)')
+        data = self.get('consumivel_estoque') # ou 'consumivel' dependendo do nome da tabela
+        return ConsumivelEstoque(data) if data else None
 
-class ConsumivelEstoque(db.Model):
-    """
-    Modelo que representa um item consumível no estoque.
-    Inclui informações de fornecedores, categorias e controle de quantidade.
-    """
-    __tablename__ = 'consumivel_estoque'
+class Pagination:
+    """Simula a classe Pagination do Flask-SQLAlchemy para as templates."""
+    def __init__(self, items, page, per_page, total):
+        self.items = items
+        self.page = page
+        self.per_page = per_page
+        self.total = total
+        self.pages = int((total + per_page - 1) / per_page)
+        self.has_prev = page > 1
+        self.has_next = page < self.pages
+        self.prev_num = page - 1
+        self.next_num = page + 1
+    
+    def iter_pages(self, left_edge=2, left_current=2, right_current=5, right_edge=2):
+        last = 0
+        for num in range(1, self.pages + 1):
+            if num <= left_edge or \
+               (num > self.page - left_current - 1 and num < self.page + right_current) or \
+               num > self.pages - right_edge:
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
 
-    id = db.Column(db.Integer, primary_key=True)
-    n_produto = db.Column(db.String(50), unique=True, nullable=False)
-    status_estoque = db.Column(db.String(50))  # Ex: "Ativo", "Inativo"
-    status_consumo = db.Column(db.String(50))  # Ex: "Consumível", "Material Específico"
-    codigo_produto = db.Column(db.String(100), unique=True, nullable=False)
-    descricao = db.Column(db.String(255), nullable=False)
-    unidade_medida = db.Column(db.String(20))  # Ex: "UN", "CX", "KG", "L"
-    categoria = db.Column(db.String(100))  # Ex: "Papel", "Ferramentas", "Tintas"
-    fornecedor = db.Column(db.String(150))
-    fornecedor2 = db.Column(db.String(150))
-    valor_unitario = db.Column(db.Float, default=0)
-    lead_time = db.Column(db.Integer)  # Tempo de reposição em dias
-    estoque_seguranca = db.Column(db.Float, default=0)  # Estoque de segurança
-    estoque_minimo = db.Column(db.Float, default=0)
-    quantidade_atual = db.Column(db.Float, nullable=False, default=0)
-    data_cadastro = db.Column(db.DateTime, default=datetime.now)
-    data_atualizacao = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+# Mocking db object to prevent immediate import errors in app.py before full cleanup
 
-    def __repr__(self):
-        return f'<ConsumivelEstoque {self.codigo_produto}: {self.descricao}>'
-
-class MovimentacaoConsumivel(db.Model):
-    """
-    Modelo que representa uma movimentação de consumível (entrada ou saída).
-    """
-    __tablename__ = 'movimentacao_consumivel'
-
-    id = db.Column(db.Integer, primary_key=True)
-    consumivel_id = db.Column(db.Integer, db.ForeignKey('consumivel_estoque.id'), nullable=False)
-    tipo = db.Column(db.String(10), nullable=False)  # "ENTRADA" ou "SAÍDA"
-    quantidade = db.Column(db.Float, nullable=False)
-    data_movimentacao = db.Column(db.DateTime, default=datetime.now)
-    observacao = db.Column(db.String(255))
-    usuario = db.Column(db.String(100))
-    setor_destino = db.Column(db.String(100))  # Setor ou etapa de destino
-
-    consumivel = db.relationship('ConsumivelEstoque', backref=db.backref('movimentacoes', lazy='dynamic', cascade="all, delete-orphan"))

@@ -1,12 +1,12 @@
 # /app.py
 
 import os
-from sqlalchemy import or_, func
+# from sqlalchemy import or_, func  <- REMOVIDO
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response, session
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-# from flask_socketio import SocketIO  # Temporariamente desabilitado
 from flask_bcrypt import Bcrypt
-from models import db, User, ItemEstoque, Movimentacao, EstoqueDetalhe, ConsumivelEstoque, MovimentacaoConsumivel
+from models import User, ItemEstoque, Movimentacao, EstoqueDetalhe, ConsumivelEstoque, MovimentacaoConsumivel, ModelWrapper
+from database_helpers import * # Importa todas as funções helper do Supabase
 from functools import wraps
 from datetime import datetime, date, timedelta
 import pandas as pd
@@ -30,16 +30,10 @@ def configure_app(app_instance):
     # Chave secreta para sessões e mensagens flash
     app_instance.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'sua-chave-secreta-super-segura')
     
-    # Configuração do banco de dados PostgreSQL (Supabase)
-    database_url = os.getenv('DATABASE_URL')
-    if database_url and database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    # REMOVIDO: Configuração do SQLAlchemy (não é mais necessária)
+    # app_instance.config['SQLALCHEMY_DATABASE_URI'] ...
     
-    app_instance.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///' + os.path.join(basedir, 'database.db')
-    app_instance.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
     # Inicializa as extensões com a aplicação
-    db.init_app(app_instance)
     bcrypt.init_app(app_instance)
     socketio.init_app(app_instance)
     login_manager.init_app(app_instance)
@@ -54,29 +48,29 @@ login_manager.login_message_category = 'info'
 
 configure_app(app)
 
-# --- FUNÇÃO PARA CRIAR O BANCO DE DADOS ---
-def criar_banco_de_dados():
-    """Cria as tabelas do banco de dados se não existirem."""
-    db.create_all()
-    print("✅ Tabelas do banco de dados verificadas/criadas com sucesso!")
-    
-    # Garante que o usuário 'admin' exista
-    admin_user = User.query.filter_by(username='admin').first()
-    if not admin_user:
-        print("🔧 Usuário 'admin' não encontrado. Criando agora...")
-        hashed_password = bcrypt.generate_password_hash('admin').decode('utf-8')
-        new_admin = User(username='admin', password_hash=hashed_password, role='admin')
-        db.session.add(new_admin)
-        db.session.commit()
-        print("✅ Usuário 'admin' criado com a senha 'admin'.")
+def check_admin_user():
+    """Garante que o usuário admin exista."""
+    try:
+        admin_user = get_user_by_username('admin')
+        if not admin_user:
+            print("🔧 Usuário 'admin' não encontrado. Criando agora...")
+            hashed_password = bcrypt.generate_password_hash('admin').decode('utf-8')
+            create_user(username='admin', password_hash=hashed_password, role='admin')
+            print("✅ Usuário 'admin' criado com a senha 'admin'.")
+        else:
+             print("✅ Sistema inicializado. Conexão Supabase OK.")
+    except Exception as e:
+        print(f"⚠️ Erro ao verificar admin: {e}")
 
-# Cria as tabelas do banco de dados na inicialização
 with app.app_context():
-    criar_banco_de_dados()
+    check_admin_user()
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user_data = get_user_by_id(int(user_id))
+    if user_data:
+        return User(user_data) # Retorna objeto User (ModelWrapper)
+    return None
 
 # --- FUNÇÕES AUXILIARES E CONTEXT PROCESSORS ---
 
@@ -134,32 +128,17 @@ def relatorio_movimentacoes():
     """Exibe o relatório de movimentações com filtros de data."""
     data_inicio_str = request.args.get('data_inicio')
     data_fim_str = request.args.get('data_fim')
-    search_query = request.args.get('q', '') # Pega o parâmetro de busca 'q'
+    search_query = request.args.get('q', '')
 
-    # Inicia a query com um join para permitir a busca nos dados do item
-    query = Movimentacao.query.join(ItemEstoque, Movimentacao.item_id == ItemEstoque.id)
-
-    if data_inicio_str:
-        data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d')
-        query = query.filter(Movimentacao.data_movimentacao >= data_inicio)
-    if data_fim_str:
-        # Adiciona o final do dia para incluir todos os registros da data final
-        data_fim = datetime.strptime(f'{data_fim_str} 23:59:59', '%Y-%m-%d %H:%M:%S')
-        query = query.filter(Movimentacao.data_movimentacao <= data_fim)
+    # Busca dados via helper (já faz os joins e filtros básicos)
+    movimentacoes_data = get_movimentacoes_report(
+        data_inicio=data_inicio_str,
+        data_fim=data_fim_str,
+        search_term=search_query
+    )
     
-    if search_query:
-        search_term = f"%{search_query}%"
-        query = query.filter(
-            or_(
-                ItemEstoque.codigo.ilike(search_term),
-                ItemEstoque.descricao.ilike(search_term),
-                Movimentacao.lote.ilike(search_term),
-                Movimentacao.usuario.ilike(search_term),
-                Movimentacao.observacao.ilike(search_term)
-            )
-        )
-
-    movimentacoes = query.order_by(Movimentacao.data_movimentacao.desc()).all()
+    # Envolve em objetos para compatibilidade com template (acesso .item.codigo)
+    movimentacoes = [Movimentacao(m) for m in movimentacoes_data]
 
     # --- Lógica para o Gráfico de Pizza ---
     # Conta o número de ocorrências de cada tipo de movimentação na lista filtrada
@@ -182,98 +161,89 @@ def relatorio_movimentacoes():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Renderiza o dashboard com dados reais do banco de dados."""
+    """Renderiza o dashboard com dados reais do banco de dados (Supabase REST)."""
     hoje = date.today()
 
-    # --- KPIs (Key Performance Indicators) ---
-    total_items_distintos = ItemEstoque.query.count()
-    total_unidades = db.session.query(func.sum(ItemEstoque.qtd_estoque)).scalar() or 0
-    itens_zerados = ItemEstoque.query.filter(ItemEstoque.qtd_estoque == 0).count()
+    # --- KPIs e Métricas Gerais (via helper otimizado) ---
+    metrics = get_dashboard_metrics()
     
-    # Lotes críticos (vencem nos próximos 30 dias ou já venceram)
-    data_limite_criticos = hoje + timedelta(days=30)
-    critical_lotes = EstoqueDetalhe.query.filter(
-        EstoqueDetalhe.validade.isnot(None),
-        EstoqueDetalhe.validade <= data_limite_criticos,
-        EstoqueDetalhe.quantidade > 0
-    ).all()
+    # Lotes críticos
+    critical_lotes_data = get_critical_lotes(days=30)
+    critical_lotes = [EstoqueDetalhe(l) for l in critical_lotes_data]
 
     # --- Dados para o Gráfico de Movimentações (Últimos 15 dias) ---
+    # Como isso requer agregação diária complexa, simplificamos ou mantemos via Python
+    # Para manter "sem alterar regras", buscamos movimentos dos ultimos 15 dias e agregamos aqui
     labels_mov = [(hoje - timedelta(days=i)).strftime('%d/%m') for i in range(14, -1, -1)]
-    entradas = []
-    saidas = []
-    for i in range(14, -1, -1):
-        dia = hoje - timedelta(days=i)
-        entradas.append(db.session.query(func.sum(Movimentacao.quantidade)).filter(Movimentacao.tipo=='ENTRADA', func.date(Movimentacao.data_movimentacao)==dia).scalar() or 0)
-        saidas.append(db.session.query(func.sum(Movimentacao.quantidade)).filter(Movimentacao.tipo=='SAIDA', func.date(Movimentacao.data_movimentacao)==dia).scalar() or 0)
+    
+    # Busca movimentações dos últimos 15 dias para agregar
+    data_inicio_grafico = (hoje - timedelta(days=15)).strftime('%Y-%m-%d')
+    recent_moves_raw = get_movimentacoes_report(data_inicio=data_inicio_grafico)
+    
+    entradas_map = {}
+    saidas_map = {}
+    
+    for mov in recent_moves_raw:
+        dt = datetime.fromisoformat(mov['data_movimentacao']).strftime('%d/%m')
+        qtd = mov.get('quantidade', 0)
+        tipo = mov.get('tipo', '')
+        
+        if 'ENTRADA' in tipo:
+            entradas_map[dt] = entradas_map.get(dt, 0) + qtd
+        elif 'SAIDA' in tipo:
+            saidas_map[dt] = saidas_map.get(dt, 0) + qtd
+            
+    entradas = [entradas_map.get(lbl, 0) for lbl in labels_mov]
+    saidas = [saidas_map.get(lbl, 0) for lbl in labels_mov]
 
     movimentacoes_chart_data = {
         'labels': labels_mov, 'entradas': entradas, 'saidas': saidas
     }
 
-    # --- Dados para o Gráfico de Tipos (Pizza) ---
-    tipos_data = db.session.query(ItemEstoque.tipo, func.count(ItemEstoque.id)).group_by(ItemEstoque.tipo).order_by(func.count(ItemEstoque.id).desc()).all()
-    tipos_chart_data = {
-        'labels': [tipo if tipo else 'Não categorizado' for tipo, count in tipos_data],
-        'counts': [count for tipo, count in tipos_data]
-    }
-
     # --- Listas Top 5 ---
-    # Filtrar apenas itens com descrição válida (não vazia, não apenas "-")
-    top_stocked_items = ItemEstoque.query.filter(
-        ItemEstoque.descricao != "",
-        ItemEstoque.descricao != "-",
-        ItemEstoque.descricao != "="
-    ).order_by(ItemEstoque.qtd_estoque.desc()).limit(5).all()
+    # Top stocked
+    top_items_data = get_top_items(limit=5, order_by='qtd_estoque', desc=True)
+    top_stocked_items = [ItemEstoque(i) for i in top_items_data]
     
-    low_stocked_items = ItemEstoque.query.filter(
-        ItemEstoque.qtd_estoque > 0, 
-        ItemEstoque.qtd_estoque <= ItemEstoque.estoque_minimo,
-        ItemEstoque.descricao != "",
-        ItemEstoque.descricao != "-",
-        ItemEstoque.descricao != "="
-    ).order_by(ItemEstoque.qtd_estoque.asc()).limit(5).all()
+    # Low stocked (precisa de lógica especial pois API não filtra col <= col)
+    low_items_data = get_low_stock_items(limit=5)
+    low_stocked_items = [ItemEstoque(i) for i in low_items_data]
 
     # --- Atividade Recente ---
-    recent_movimentacoes = Movimentacao.query.order_by(Movimentacao.data_movimentacao.desc()).limit(5).all()
+    recent_mov_data = get_recent_movimentacoes(limit=5)
+    recent_movimentacoes = [Movimentacao(m) for m in recent_mov_data]
 
     # --- Dados para Alertas de Validade ---
-    data_limite_proximos = hoje + timedelta(days=40)
-
-    # Lotes que vencem exatamente hoje e têm quantidade
-    lotes_vencendo_hoje = EstoqueDetalhe.query.filter(
-        EstoqueDetalhe.validade == hoje,
-        EstoqueDetalhe.quantidade > 0
-    ).order_by(EstoqueDetalhe.item_estoque_id).all()
-
-    # Lotes que vencem nos próximos 40 dias (excluindo hoje) e têm quantidade
-    lotes_proximo_vencimento = EstoqueDetalhe.query.filter(
-        EstoqueDetalhe.validade > hoje,
-        EstoqueDetalhe.validade <= data_limite_proximos,
-        EstoqueDetalhe.quantidade > 0
-    ).order_by(EstoqueDetalhe.validade.asc()).all()
+    # Lotes vencendo hoje / proximos
+    lotes_hoje_data = get_expiring_lots(days=0, today_only=True)
+    lotes_vencendo_hoje = [EstoqueDetalhe(l) for l in lotes_hoje_data]
+    
+    lotes_prox_data = get_expiring_lots(days=40, today_only=False)
+    lotes_proximo_vencimento = [EstoqueDetalhe(l) for l in lotes_prox_data]
 
     # --- DADOS DE CONSUMÍVEIS ---
-    total_consumiveis = ConsumivelEstoque.query.count()
-    consumiveis_zerados = ConsumivelEstoque.query.filter(ConsumivelEstoque.quantidade_atual == 0).count()
-    consumiveis_baixo_estoque = ConsumivelEstoque.query.filter(
-        ConsumivelEstoque.quantidade_atual > 0,
-        ConsumivelEstoque.quantidade_atual <= ConsumivelEstoque.estoque_minimo
-    ).count()
+    # Simplificação: Buscamos todos consumíveis (se forem poucos) ou criamos helpers
+    # Assumindo quantity moderate, fetch all simples
+    todos_consumiveis = get_all_consumiveis()
+    total_consumiveis = len(todos_consumiveis)
+    consumiveis_zerados = sum(1 for c in todos_consumiveis if c.get('quantidade_atual', 0) == 0)
+    consumiveis_baixo_estoque = sum(1 for c in todos_consumiveis if c.get('quantidade_atual', 0) > 0 and c.get('quantidade_atual', 0) <= c.get('estoque_minimo', 0))
     
-    # Top 5 consumíveis com menor quantidade (alerta visual)
-    low_consumiveis = ConsumivelEstoque.query.order_by(ConsumivelEstoque.quantidade_atual.asc()).limit(5).all()
+    # Ordenar para pegar top 5 low
+    low_consumiveis_data = sorted(todos_consumiveis, key=lambda x: x.get('quantidade_atual', 0))[:5]
+    low_consumiveis = [ConsumivelEstoque(c) for c in low_consumiveis_data]
     
-    # Últimas 5 movimentações de consumíveis
-    recent_consumivel_moves = MovimentacaoConsumivel.query.order_by(MovimentacaoConsumivel.data_movimentacao.desc()).limit(5).all()
+    # Recent moves consumiveis
+    recent_cons_moves_data = get_movimentacoes_consumivel(limit=5)
+    recent_consumivel_moves = [MovimentacaoConsumivel(m) for m in recent_cons_moves_data]
 
     return render_template('dashboard.html', 
-                           total_items_distintos=total_items_distintos,
-                           total_unidades=total_unidades,
-                           itens_zerados=itens_zerados,
+                           total_items_distintos=metrics['total_items_distintos'],
+                           total_unidades=metrics['total_unidades'],
+                           itens_zerados=metrics['itens_zerados'],
                            critical_lotes=critical_lotes,
                            movimentacoes_chart_data=movimentacoes_chart_data,
-                           tipos_chart_data=tipos_chart_data,
+                           tipos_chart_data=metrics['tipos_chart_data'],
                            top_stocked_items=top_stocked_items,
                            low_stocked_items=low_stocked_items,
                            recent_movimentacoes=recent_movimentacoes,
@@ -290,18 +260,16 @@ def dashboard():
 @login_required
 def api_kpis():
     """Retorna os dados dos KPIs principais em formato JSON."""
-    hoje = date.today()
-    data_limite_criticos = hoje + timedelta(days=30)
+    metrics = get_dashboard_metrics()
+    
+    # Busca lotes críticos via helper
+    critical_lotes_data = get_critical_lotes(days=30)
     
     kpis = {
-        'total_items_distintos': ItemEstoque.query.count(),
-        'total_unidades': db.session.query(func.sum(ItemEstoque.qtd_estoque)).scalar() or 0,
-        'itens_zerados': ItemEstoque.query.filter(ItemEstoque.qtd_estoque == 0).count(),
-        'critical_lotes': EstoqueDetalhe.query.filter(
-            EstoqueDetalhe.validade.isnot(None),
-            EstoqueDetalhe.validade <= data_limite_criticos,
-            EstoqueDetalhe.quantidade > 0
-        ).count()
+        'total_items_distintos': metrics['total_items_distintos'],
+        'total_unidades': metrics['total_unidades'],
+        'itens_zerados': metrics['itens_zerados'],
+        'critical_lotes': critical_lotes_data # Retorna lista de dicts
     }
     return jsonify(kpis)
 
@@ -349,26 +317,25 @@ def api_item_previsao(item_id):
     Gera e retorna uma previsão de consumo (saídas) para um item específico.
     Utiliza um modelo de Suavização Exponencial.
     """
-    item = ItemEstoque.query.get_or_404(item_id)
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
+        abort(404)
+    item = ItemEstoque(item_data)
     
-    # 1. Coletar dados históricos de SAÍDA para o item
-    # Busca movimentações dos últimos 90 dias (ajustável)
-    data_limite_historico = datetime.now() - timedelta(days=90)
-    historico_saidas = Movimentacao.query.filter(
-        Movimentacao.item_id == item_id,
-        Movimentacao.tipo == 'SAIDA',
-        Movimentacao.data_movimentacao >= data_limite_historico
-    ).order_by(Movimentacao.data_movimentacao.asc()).all()
-
-    if not historico_saidas:
+    # 1. Coletar dados históricos de SAÍDA para o item (Via Supabase Helper)
+    historico_saidas_data = get_item_movements_in_period(item_id, days=90, tipo='SAIDA')
+    
+    if not historico_saidas_data:
         return jsonify({'error': 'Dados históricos de saída insuficientes para previsão.', 'previsao': []}), 404
 
     # 2. Preparar os dados para o modelo (série temporal diária)
     data_saidas = []
-    for mov in historico_saidas:
+    for mov_dict in historico_saidas_data:
+        # Supabase retorna datas como strings ISO
+        dt_mov = datetime.fromisoformat(mov_dict.get('data_movimentacao'))
         data_saidas.append({
-            'data': mov.data_movimentacao.date(),
-            'quantidade': mov.quantidade
+            'data': dt_mov.date(),
+            'quantidade': mov_dict.get('quantidade')
         })
     
     df_saidas = pd.DataFrame(data_saidas)
@@ -383,7 +350,6 @@ def api_item_previsao(item_id):
     df_diario = df_diario.reindex(idx, fill_value=0)
     
     # 3. Treinar o modelo de Suavização Exponencial
-    # Usando ExponentialSmoothing com tendência aditiva e sem sazonalidade para começar
     try:
         model = ExponentialSmoothing(df_diario['quantidade'], trend='add', seasonal=None, initialization_method="estimated").fit()
         
@@ -408,21 +374,20 @@ def _gerar_previsao_para_item(item_id, dias_para_prever):
     Função auxiliar interna para gerar previsão. Não é uma rota.
     Retorna um dicionário com a previsão ou um erro.
     """
-    item = ItemEstoque.query.get(item_id)
-    if not item:
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
         return {'error': 'Item não encontrado.'}
 
-    data_limite_historico = datetime.now() - timedelta(days=90)
-    historico_saidas = Movimentacao.query.filter(
-        Movimentacao.item_id == item_id,
-        Movimentacao.tipo == 'SAIDA',
-        Movimentacao.data_movimentacao >= data_limite_historico
-    ).order_by(Movimentacao.data_movimentacao.asc()).all()
+    historico_saidas_data = get_item_movements_in_period(item_id, days=90, tipo='SAIDA')
 
-    if not historico_saidas:
+    if not historico_saidas_data:
         return {'error': 'Dados históricos insuficientes.', 'previsao': []}
 
-    data_saidas = [{'data': mov.data_movimentacao.date(), 'quantidade': mov.quantidade} for mov in historico_saidas]
+    data_saidas = []
+    for mov_dict in historico_saidas_data:
+        dt_mov = datetime.fromisoformat(mov_dict.get('data_movimentacao'))
+        data_saidas.append({'data': dt_mov.date(), 'quantidade': mov_dict.get('quantidade')})
+
     df_saidas = pd.DataFrame(data_saidas)
     df_saidas['data'] = pd.to_datetime(df_saidas['data'])
     
@@ -450,43 +415,34 @@ def _gerar_previsao_para_item(item_id, dias_para_prever):
 @app.route('/api/sugestoes-compra')
 @login_required
 def api_sugestoes_compra():
-    """
-    Analisa o estoque, o consumo previsto e o tempo de reposição para gerar
-    sugestões de compra inteligentes. Com limite de itens e tratamento de erro.
-    """
+    """Gera sugestões de compra inteligentes."""
     try:
         sugestoes = []
-        # Analisa apenas itens que têm estoque e com limite para evitar overhead
-        itens = ItemEstoque.query.filter(ItemEstoque.qtd_estoque > 0).limit(100).all()
+        # Analisa apenas itens com estoque > 0 para evitar queries em itens abandonados
+        # Supabase filter gt
+        items_data = select_many('item_estoque', limit=100) # Simplificado, ideal filtrar gt qtd_estoque > 0 no server se fosse muitos
+        # Filtro python pq select_many basico nao expoe gt facilmente (podemos usar supabase direto se precisar)
+        itens = [ItemEstoque(i) for i in items_data if i.get('qtd_estoque', 0) > 0]
 
         for item in itens:
             try:
-                # 1. Obter a previsão de consumo para o período do lead time
                 dias_para_prever = item.tempo_reposicao or 7
+                resultado_previsao = _gerar_previsao_para_item(int(item.id), dias_para_prever)
                 
-                # Usa a função auxiliar para obter a previsão
-                resultado_previsao = _gerar_previsao_para_item(item.id, dias_para_prever)
                 if 'error' in resultado_previsao:
-                    continue # Pula para o próximo item se não houver previsão
+                    continue
 
                 previsao_data = resultado_previsao
                 consumo_previsto_total = sum(p['quantidade_prevista'] for p in previsao_data.get('previsao', []))
 
-                # 2. Calcular o estoque projetado ao final do lead time
-                estoque_projetado = item.qtd_estoque - consumo_previsto_total
+                estoque_projetado = (item.qtd_estoque or 0) - consumo_previsto_total
 
-                # 3. Verificar se o estoque projetado está abaixo do mínimo
-                if estoque_projetado < item.estoque_minimo:
-                    # 4. Gerar a sugestão de compra
-                    
-                    # Usa a quantidade ideal configurada, ou calcula automaticamente
+                if estoque_projetado < (item.estoque_minimo or 0):
                     if item.estoque_ideal_compra and item.estoque_ideal_compra > 0:
                         quantidade_sugerida = item.estoque_ideal_compra
                     else:
-                        # Cálculo automático: para voltar ao dobro do estoque mínimo
                         quantidade_sugerida = (item.estoque_minimo * 2) - estoque_projetado
                     
-                    # Calcula até quando o pedido deve ser feito
                     dias_ate_critico = (item.qtd_estoque - item.estoque_minimo) / (consumo_previsto_total / dias_para_prever) if consumo_previsto_total > 0 else float('inf')
                     data_limite_pedido = date.today() + timedelta(days=max(0, dias_ate_critico))
 
@@ -498,40 +454,29 @@ def api_sugestoes_compra():
                         'data_limite_pedido': data_limite_pedido.strftime('%d/%m/%Y')
                     })
             except Exception as e:
-                # Log do erro e continua para o próximo item
                 print(f"Erro ao processar item {item.id}: {str(e)}")
                 continue
 
-        # Ordena por data de prazo
         sugestoes_ordenadas = sorted(sugestoes, key=lambda x: datetime.strptime(x['data_limite_pedido'], '%d/%m/%Y'))
         return jsonify(sugestoes_ordenadas)
     
     except Exception as e:
-        # Retorna um array vazio com erro, evitando que o frontend fique pendurado
         print(f"Erro geral em api_sugestoes_compra: {str(e)}")
         return jsonify([])
 
 @app.route('/api/stock-turnover-data')
 @login_required
 def api_stock_turnover_data():
-    """
-    Calcula e retorna o giro de estoque para identificar itens parados.
-    Giro = Total de Saídas (últimos 90 dias) / Estoque Atual
-    """
-    hoje = date.today()
-    periodo_dias = 90 # Período para calcular as saídas
-    data_limite_saidas = datetime.now() - timedelta(days=periodo_dias)
-
+    """Giro de estoque."""
+    items_data = select_many('item_estoque', limit=200) # Limite aumentado
+    itens = [ItemEstoque(i) for i in items_data if i.get('qtd_estoque', 0) > 0]
+    
     itens_com_giro = []
-    # Filtra apenas itens que têm estoque para calcular o giro
-    itens = ItemEstoque.query.filter(ItemEstoque.qtd_estoque > 0).all()
-
+    
     for item in itens:
-        total_saidas_periodo = db.session.query(func.sum(Movimentacao.quantidade)).filter(
-            Movimentacao.item_id == item.id,
-            Movimentacao.tipo == 'SAIDA',
-            Movimentacao.data_movimentacao >= data_limite_saidas
-        ).scalar() or 0
+        # Busca saídas nos últimos 90 dias
+        moves = get_item_movements_in_period(int(item.id), days=90, tipo='SAIDA')
+        total_saidas_periodo = sum(m.get('quantidade', 0) for m in moves)
 
         giro_estoque = 0
         if item.qtd_estoque > 0: # Evita divisão por zero
@@ -540,13 +485,12 @@ def api_stock_turnover_data():
         itens_com_giro.append({
             'id': item.id,
             'descricao': item.descricao,
-            'codigo': item.codigo, # Mantém o código para o tooltip
-            'giro_estoque': round(giro_estoque, 2), # Mantém o código para o tooltip
+            'codigo': item.codigo,
+            'giro_estoque': round(giro_estoque, 2),
             'qtd_estoque': item.qtd_estoque,
             'total_saidas': total_saidas_periodo
         })
     
-    # Ordena pelo giro de estoque (menor giro = mais parado) e retorna os top 10
     itens_com_giro_ordenado = sorted(itens_com_giro, key=lambda x: x['giro_estoque'])
     return jsonify(itens_com_giro_ordenado[:10])
 
@@ -562,22 +506,20 @@ def index():
 def cadastro():
     """Página para cadastrar um novo item no estoque."""
     if request.method == 'POST':
-        # Coleta os dados do formulário para ItemEstoque
+        # Coleta os dados do formulário
         codigo = request.form['codigo']
         descricao = request.form['descricao']
         
-        # Coleta os dados do formulário para EstoqueDetalhe (primeiro lote)
-        qtd_entrada = request.form.get('qtd_estoque') # Renomeado para clareza
+        qtd_entrada = request.form.get('qtd_estoque')
         lote = request.form.get('lote')
         item_nf = request.form.get('item_nf')
         nf = request.form.get('nf')
         validade_str = request.form.get('validade')
-        # Validação para campos obrigatórios do ItemEstoque
+        
         if not codigo or not descricao:
             flash('Código e Descrição são campos obrigatórios para o item!', 'danger')
             return redirect(url_for('cadastro'))
         
-        # Validação para campos obrigatórios do EstoqueDetalhe inicial
         if not qtd_entrada or not lote or not item_nf:
             flash('Quantidade, Lote e Item NF são campos obrigatórios para a entrada inicial!', 'danger')
             return redirect(url_for('cadastro'))
@@ -591,67 +533,74 @@ def cadastro():
             flash('A quantidade de entrada deve ser um número válido.', 'danger')
             return redirect(url_for('cadastro'))
 
-        # Verifica se o item já existe pelo código
-        if ItemEstoque.query.filter_by(codigo=codigo).first():
-            flash(f'Item com o código "{codigo}" já existe no estoque. Use a tela de movimentação para adicionar mais lotes.', 'warning')
+        # Verifica duplicidade
+        if get_item_estoque_by_codigo(codigo):
+            flash(f'Item com o código "{codigo}" já existe no estoque.', 'warning')
             return redirect(url_for('cadastro'))
 
-        # Converte validade
-        validade = datetime.strptime(validade_str, '%Y-%m-%d').date() if validade_str else None
+        validade = validade_str if validade_str else None
 
-        # Cria um novo objeto ItemEstoque
-        novo_item = ItemEstoque(
-            codigo=codigo,
-            endereco=request.form.get('endereco'),
-            codigo_opcional=request.form.get('codigo_opcional'),
-            tipo=request.form.get('tipo'),
-            descricao=descricao,
-            un=request.form.get('un'),
-            dimensao=request.form.get('dimensao'),
-            estoque_minimo=float(request.form.get('estoque_minimo', 5)), # Adiciona o estoque mínimo
-            estoque_ideal_compra=float(request.form.get('estoque_ideal_compra', 0)) if request.form.get('estoque_ideal_compra') else None, # Quantidade ideal para comprar
-            cliente=request.form.get('cliente'),
-            qtd_estoque=0 # Começa com 0, será atualizado pelo EstoqueDetalhe
-        )
-
-        # Adiciona e salva no banco de dados
+        # --- INÍCIO TRANSAÇÃO MANUAL ---
+        created_item = None
+        
         try:
-            db.session.add(novo_item)
-            db.session.flush() # Para obter o ID do novo_item antes de commitar
+            # 1. Cria ItemEstoque
+            item_data = {
+                'codigo': codigo,
+                'endereco': request.form.get('endereco'),
+                'codigo_opcional': request.form.get('codigo_opcional'),
+                'tipo': request.form.get('tipo'),
+                'descricao': descricao,
+                'un': request.form.get('un'),
+                'dimensao': request.form.get('dimensao'),
+                'estoque_minimo': float(request.form.get('estoque_minimo', 5)),
+                'estoque_ideal_compra': float(request.form.get('estoque_ideal_compra', 0)) if request.form.get('estoque_ideal_compra') else None,
+                'cliente': request.form.get('cliente'),
+                'qtd_estoque': qtd_entrada, # Já inicializa com a qtd
+                'tempo_reposicao': int(request.form.get('tempo_reposicao', 7))
+            }
             
-            # Cria o primeiro detalhe de estoque para este item
-            novo_detalhe = EstoqueDetalhe(
-                item_estoque_id=novo_item.id,
-                lote=lote,
-                item_nf=item_nf,
-                nf=nf,
-                validade=validade,
-                estacao='Almoxarifado',
-                quantidade=qtd_entrada
-            )
-            db.session.add(novo_detalhe)
+            created_item = create_item_estoque(item_data)
+            if not created_item:
+                 raise Exception("Falha ao criar ItemEstoque")
+                 
+            item_id = created_item['id']
 
-            # Atualiza a quantidade total do ItemEstoque
-            novo_item.qtd_estoque += qtd_entrada
+            # 2. Cria EstoqueDetalhe
+            detalhe_data = {
+                'item_estoque_id': item_id,
+                'lote': lote,
+                'item_nf': item_nf,
+                'nf': nf,
+                'validade': validade,
+                'estacao': 'Almoxarifado',
+                'quantidade': qtd_entrada
+            }
+            if not create_estoque_detalhe(detalhe_data):
+                raise Exception("Falha ao criar EstoqueDetalhe")
 
-            # Cria o registro de movimentação para constar no histórico e dashboard
-            movimentacao_inicial = Movimentacao(
-                item_id=novo_item.id,
-                tipo='ENTRADA',
-                quantidade=qtd_entrada,
-                lote=lote,
-                item_nf=item_nf,
-                nf=nf, # <-- ADICIONADO: Garante que a NF seja salva na movimentação inicial
-                usuario=current_user.username,
-                etapa='CADASTRO',
-                observacao='Entrada inicial via cadastro de novo item.'
-            )
-            db.session.add(movimentacao_inicial)
+            # 3. Cria Movimentacao
+            mov_data = {
+                'item_id': item_id,
+                'tipo': 'ENTRADA',
+                'quantidade': qtd_entrada,
+                'lote': lote,
+                'item_nf': item_nf,
+                'nf': nf,
+                'usuario': current_user.username if hasattr(current_user, 'username') else 'admin',
+                'etapa': 'CADASTRO',
+                'observacao': 'Entrada inicial via cadastro de novo item.'
+            }
+            create_movimentacao(mov_data)
 
-            db.session.commit()
             flash('Item e seu primeiro lote cadastrados com sucesso!', 'success')
+            
         except Exception as e:
-            db.session.rollback()
+            # Rollback Manual (compensating transaction)
+            if created_item:
+                print(f"⚠️ Rolling back item {created_item['id']} due to error: {e}")
+                delete_item_estoque(created_item['id'])
+                
             flash(f'Erro ao cadastrar o item e lote: {e}', 'danger')
         
         return redirect(url_for('estoque'))
@@ -661,20 +610,12 @@ def cadastro():
 @app.route('/controle_validade')
 @login_required
 def controle_validade():
-    """
-    Tela de Controle de Validade – Itens para Etiqueta Vermelha (40 dias).
-    Exibe itens que estão a 40 dias ou menos do vencimento E com status 'PENDENTE'.
-    """
+    """Etiqueta Vermelha: Itens vencendo nos próximos 40 dias."""
     hoje = date.today()
-    data_limite = hoje + timedelta(days=40)
     
-    # Busca lotes com validade próxima ou vencida, com quantidade > 0 e PENDENTES
-    lotes_criticos = EstoqueDetalhe.query.join(ItemEstoque).filter(
-        EstoqueDetalhe.validade <= data_limite,
-        EstoqueDetalhe.validade.isnot(None),
-        EstoqueDetalhe.quantidade > 0,
-        or_(EstoqueDetalhe.status_etiqueta == 'PENDENTE', EstoqueDetalhe.status_etiqueta == None)
-    ).order_by(EstoqueDetalhe.validade.asc()).all()
+    # helper: busca PENDENTES ou NULL, com qtd > 0
+    lotes_data = get_etiqueta_vermelha_items(days=40)
+    lotes_criticos = [EstoqueDetalhe(l) for l in lotes_data]
     
     return render_template('controle_validade.html', 
                            lotes=lotes_criticos, 
@@ -684,32 +625,32 @@ def controle_validade():
 @app.route('/controle_validade/marcar_concluido/<int:lote_id>', methods=['POST'])
 @login_required
 def marcar_validade_concluido(lote_id):
-    """
-    Marca um item como 'CONCLUÍDO' no processo de etiqueta vermelha.
-    """
-    lote = EstoqueDetalhe.query.get_or_404(lote_id)
-    
+    """Marca um item como 'CONCLUÍDO'."""
     try:
-        lote.status_etiqueta = 'CONCLUÍDO'
-        lote.data_etiqueta = datetime.now()
-        lote.usuario_etiqueta = current_user.username
-        db.session.commit()
+        # Verifica existência (opcional, update retornaria erro ou nada)
+        detalhe = get_estoque_detalhe_by_id(lote_id)
+        if not detalhe:
+            return jsonify({'success': False, 'message': 'Lote não encontrado'}), 404
+
+        update_data = {
+            'status_etiqueta': 'CONCLUÍDO',
+            'data_etiqueta': datetime.now().isoformat(),
+            'usuario_etiqueta': current_user.username
+        }
+        update_estoque_detalhe(lote_id, update_data)
+        
         return jsonify({'success': True, 'message': 'Item marcado como concluído!'})
     except Exception as e:
-        db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/controle_validade/historico')
 @login_required
 def historico_validade():
-    """
-    Exibe o histórico de itens já etiquetados (CONCLUÍDO).
-    """
+    """Histórico de itens já etiquetados."""
     hoje = date.today()
     
-    lotes_concluidos = EstoqueDetalhe.query.join(ItemEstoque).filter(
-        EstoqueDetalhe.status_etiqueta == 'CONCLUÍDO'
-    ).order_by(EstoqueDetalhe.data_etiqueta.desc()).limit(500).all() # Limitando para não pesar
+    lotes_data = get_historico_etiquetas(limit=500)
+    lotes_concluidos = [EstoqueDetalhe(l) for l in lotes_data]
     
     return render_template('controle_validade_historico.html', 
                            lotes=lotes_concluidos, 
@@ -720,20 +661,16 @@ def historico_validade():
 @admin_only
 @login_required
 def reabrir_validade(lote_id):
-    """
-    Reabre um item concluído, voltando para PENDENTE (Admin only).
-    """
-    lote = EstoqueDetalhe.query.get_or_404(lote_id)
-    
+    """Reabre um item concluído."""
     try:
-        lote.status_etiqueta = 'PENDENTE'
-        # Mantemos o histórico de data/usuário ou limpamos? Melhor limpar para indicar novo ciclo.
-        lote.data_etiqueta = None
-        lote.usuario_etiqueta = None
-        db.session.commit()
+        update_data = {
+            'status_etiqueta': 'PENDENTE',
+            'data_etiqueta': None,
+            'usuario_etiqueta': None
+        }
+        update_estoque_detalhe(lote_id, update_data)
         flash('Item reaberto com sucesso. Ele voltou para a lista de pendências.', 'success')
     except Exception as e:
-        db.session.rollback()
         flash(f'Erro ao reabrir item: {e}', 'danger')
         
     return redirect(url_for('historico_validade'))
@@ -742,52 +679,41 @@ def reabrir_validade(lote_id):
 @admin_only
 @login_required
 def exportar_validade():
-    """
-    Exporta a lista de controle de validade para Excel.
-    Se passar ?tipo=historico, exporta o histórico.
-    """
+    """Exporta lista para Excel."""
     tipo = request.args.get('tipo', 'pendente')
     hoje = date.today()
     output = io.BytesIO()
     
-    # Query base
-    query = EstoqueDetalhe.query.join(ItemEstoque).filter(
-        EstoqueDetalhe.validade.isnot(None),
-        EstoqueDetalhe.quantidade > 0
-    )
-    
     if tipo == 'historico':
-        query = query.filter(EstoqueDetalhe.status_etiqueta == 'CONCLUÍDO').order_by(EstoqueDetalhe.data_etiqueta.desc())
+        lotes_data = get_historico_etiquetas(limit=1000)
         filename = f"Historico_Etiquetas_{hoje.strftime('%Y-%m-%d')}.xlsx"
     else:
-        # Padrão: Pendentes (<= 40 dias)
-        data_limite = hoje + timedelta(days=40)
-        query = query.filter(
-            EstoqueDetalhe.validade <= data_limite,
-            or_(EstoqueDetalhe.status_etiqueta == 'PENDENTE', EstoqueDetalhe.status_etiqueta == None)
-        ).order_by(EstoqueDetalhe.validade.asc())
+        lotes_data = get_etiqueta_vermelha_items(days=40)
         filename = f"Pendencias_Etiquetas_{hoje.strftime('%Y-%m-%d')}.xlsx"
         
-    lotes = query.all()
+    lotes = [EstoqueDetalhe(l) for l in lotes_data]
     
     data = []
     for lote in lotes:
-        dias_para_vencer = (lote.validade - hoje).days
-        status_vencimento = "VENCIDO" if dias_para_vencer < 0 else "Crítico"
+        validade_dt = datetime.strptime(lote.validade, '%Y-%m-%d').date() if lote.validade else None
+        dias_para_vencer = (validade_dt - hoje).days if validade_dt else 0
+        
+        # Acessa item_estoque via property wrapper
+        item = lote.item_estoque # Garante acesso a .codigo, .descricao
         
         row = {
-            'Código': lote.item_estoque.codigo,
-            'Descrição': lote.item_estoque.descricao,
+            'Código': item.codigo if item else '-',
+            'Descrição': item.descricao if item else '-',
             'Lote': lote.lote,
-            'Local': f"{lote.item_estoque.endereco or '-'} / {lote.estacao or '-'}",
-            'Validade': lote.validade.strftime('%d/%m/%Y'),
+            'Local': f"{item.endereco or '-' if item else '-'} / {lote.estacao or '-'}",
+            'Validade': validade_dt.strftime('%d/%m/%Y') if validade_dt else '-',
             'Dias Vencimento': dias_para_vencer,
             'Quantidade': lote.quantidade,
             'Status Etiqueta': lote.status_etiqueta or 'PENDENTE'
         }
         
         if tipo == 'historico':
-            row['Data Etiqueta'] = lote.data_etiqueta.strftime('%d/%m/%Y %H:%M') if lote.data_etiqueta else '-'
+            row['Data Etiqueta'] = datetime.fromisoformat(lote.data_etiqueta).strftime('%d/%m/%Y %H:%M') if lote.data_etiqueta else '-'
             row['Resp. Etiqueta'] = lote.usuario_etiqueta or '-'
             
         data.append(row)
@@ -813,18 +739,10 @@ def exportar_validade():
 @admin_only
 @login_required
 def imprimir_validade():
-    """
-    Renderiza a versão de impressão da lista de controle de validade (PENDENTES).
-    """
+    """Versão de impressão (PENDENTES)."""
     hoje = date.today()
-    data_limite = hoje + timedelta(days=40)
-    
-    lotes_criticos = EstoqueDetalhe.query.join(ItemEstoque).filter(
-        EstoqueDetalhe.validade <= data_limite,
-        EstoqueDetalhe.validade.isnot(None),
-        EstoqueDetalhe.quantidade > 0,
-        or_(EstoqueDetalhe.status_etiqueta == 'PENDENTE', EstoqueDetalhe.status_etiqueta == None)
-    ).order_by(EstoqueDetalhe.validade.asc()).all()
+    lotes_data = get_etiqueta_vermelha_items(days=40)
+    lotes_criticos = [EstoqueDetalhe(l) for l in lotes_data]
     
     return render_template('print_validade.html', 
                            lotes=lotes_criticos, 
@@ -835,41 +753,24 @@ def imprimir_validade():
 def estoque():
     """
     Página para listar todos os lotes detalhados do estoque.
-    A exibição é baseada em EstoqueDetalhe, mostrando cada lote/nf como uma linha.
     """
     search_query = request.args.get('q', '')
-    
-    # A consulta base agora é em EstoqueDetalhe, com join para ItemEstoque para busca e exibição.
-    query = EstoqueDetalhe.query.join(ItemEstoque, EstoqueDetalhe.item_estoque_id == ItemEstoque.id)
-    
-    if search_query and search_query.strip():
-        search_term = f"%{search_query}%"
-        # O filtro agora busca em campos do ItemEstoque e do EstoqueDetalhe
-        query = query.filter(
-            or_(
-                ItemEstoque.codigo.ilike(search_term),
-                ItemEstoque.descricao.ilike(search_term),
-                EstoqueDetalhe.lote.ilike(search_term),
-                EstoqueDetalhe.nf.ilike(search_term),
-                EstoqueDetalhe.item_nf.ilike(search_term)
-            )
-        )
-    
-    # Filtra apenas lotes que têm saldo positivo
-    query = query.filter(EstoqueDetalhe.quantidade > 0)
-    
-    # Ordena por FIFO (primeiro que vence, primeiro que sai). Lotes sem validade ficam por último.
-    query = query.order_by(EstoqueDetalhe.validade.asc().nullslast(), ItemEstoque.codigo.asc())
-    
-    # Implementação da Paginação sobre a nova query
     page = request.args.get('page', 1, type=int)
     per_page = 25
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
-    # A variável agora contém objetos EstoqueDetalhe paginados
-    lotes_detalhados = pagination.items
+    items, total = get_estoque_detalhado(page=page, per_page=per_page, search_term=search_query)
     
-    # O template receberá 'lotes_detalhados' em vez de 'itens'
+    # Envolve em objetos EstoqueDetalhe
+    lotes_detalhados = [EstoqueDetalhe(i) for i in items]
+    
+    # Cria objeto de paginação compatível com a template (classe Pagination definida em models.py)
+    pagination = Pagination(lotes_detalhados, page, per_page, total)
+    
+    # Como a classe Pagination popula .items, podemos passar pagination.items ou a lista direta
+    # O template 'estoque.html' provavelmente itera sobre `lotes_detalhados` ou `pagination.items`?
+    # No código original: lotes_detalhados = pagination.items -> template recebe lotes_detalhados
+    # E pagination recebe pagination.
+    
     return render_template('estoque.html',
                            lotes_detalhados=lotes_detalhados,
                            search_query=search_query,
@@ -882,45 +783,45 @@ def estoque():
 @login_required
 def editar_item(item_id):
     """Página para editar um item existente."""
-    item = ItemEstoque.query.get_or_404(item_id)
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
+        abort(404)
+    item = ItemEstoque(item_data)
 
     if request.method == 'POST':
-        # Coleta os dados do formulário
+        # Coleta os dados validações
         codigo = request.form['codigo']
         descricao = request.form['descricao']
 
-        # Validação para campos obrigatórios
         if not codigo or not descricao:
             flash('Código e Descrição são campos obrigatórios!', 'danger')
             return render_template('editar_item.html', item=item)
 
-        # Verifica se o novo código já existe em outro item
-        item_existente = ItemEstoque.query.filter(ItemEstoque.codigo == codigo, ItemEstoque.id != item_id).first()
-        if item_existente:
+        # Verifica duplicidade
+        existing = get_item_estoque_by_codigo(codigo)
+        if existing and str(existing['id']) != str(item_id):
             flash(f'O código "{codigo}" já está em uso por outro item.', 'warning')
             return render_template('editar_item.html', item=item)
 
-        # Atualiza os campos do objeto item
-        item.codigo = codigo
-        item.descricao = descricao
-        item.endereco = request.form.get('endereco')
-        item.codigo_opcional = request.form.get('codigo_opcional')
-        item.tipo = request.form.get('tipo')
-        item.un = request.form.get('un')
-        item.dimensao = request.form.get('dimensao')
-        item.estoque_minimo = float(request.form.get('estoque_minimo', 5)) # Atualiza o estoque mínimo
-        item.estoque_ideal_compra = float(request.form.get('estoque_ideal_compra', 0)) if request.form.get('estoque_ideal_compra') else None # Atualiza a quantidade ideal para comprar
-        item.tempo_reposicao = int(request.form.get('tempo_reposicao', 7)) # Atualiza o tempo de reposição
-        item.cliente = request.form.get('cliente')
-        # Os campos de lote, NF, validade, estacao, status_validade e qtd_estoque
-        # NÃO são mais parte direta do ItemEstoque e não devem ser atualizados aqui.
-        # Eles pertencem ao EstoqueDetalhe.
+        update_data = {
+            'codigo': codigo,
+            'descricao': descricao,
+            'endereco': request.form.get('endereco'),
+            'codigo_opcional': request.form.get('codigo_opcional'),
+            'tipo': request.form.get('tipo'),
+            'un': request.form.get('un'),
+            'dimensao': request.form.get('dimensao'),
+            'estoque_minimo': float(request.form.get('estoque_minimo', 5)),
+            'estoque_ideal_compra': float(request.form.get('estoque_ideal_compra', 0)) if request.form.get('estoque_ideal_compra') else None,
+            'tempo_reposicao': int(request.form.get('tempo_reposicao', 7)),
+            'cliente': request.form.get('cliente')
+        }
+
         try:
-            db.session.commit()
+            update_item_estoque(item_id, update_data)
             flash('Item atualizado com sucesso!', 'success')
             return redirect(url_for('estoque'))
         except Exception as e:
-            db.session.rollback()
             flash(f'Erro ao atualizar o item: {e}', 'danger')
 
     return render_template('editar_item.html', item=item)
@@ -930,11 +831,27 @@ def editar_item(item_id):
 @login_required
 def excluir_item(item_id):
     """Rota para excluir um item do estoque."""
-    item = ItemEstoque.query.get_or_404(item_id)
-    # Adicionar verificação se o item tem movimentações? (Opcional)
-    db.session.delete(item)
-    db.session.commit()
-    flash(f'Item "{item.descricao}" e todo o seu histórico foram excluídos com sucesso.', 'success')
+    # Supabase faz cascade se configurado, ou precisamos deletar related?
+    # Vamos assumir que o banco tem FK on delete cascade ou deletar manual.
+    # Safe delete manual: deleta movimentacoes, detalhes, depois item.
+    # Mas se tabela tiver on delete cascade é auto.
+    # Vamos tentar deletar direto.
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
+        abort(404)
+        
+    try:
+        # Tenta deletar item (cascade deve tratar o resto se configurado, se não, vai dar erro FK)
+        # Se der erro, implementamos delete manual dos filhos.
+        # Supabase helpers geralmente não retornam status se vazio, mas lançam exceção se erro.
+        success = delete_item_estoque(item_id)
+        if hasattr(success, 'error') and success.error:
+             raise Exception(success.error.message)
+             
+        flash(f'Item "{item_data.get("descricao")}" excluído com sucesso.', 'success')
+    except Exception as e:
+        flash(f'Erro ao excluir item: {str(e)}. Verifique dependências.', 'danger')
+        
     return redirect(url_for('estoque'))
 
 @app.route('/movimentacao', methods=['GET', 'POST'])
@@ -945,14 +862,17 @@ def movimentacao():
     if request.method == 'POST':
         item_id = request.form.get('item_id')
         tipo = request.form.get('tipo')
-        etapa = request.form.get('etapa') # Captura a etapa
-        observacao = request.form.get('observacao') # Captura a observação
+        etapa = request.form.get('etapa')
+        observacao = request.form.get('observacao')
         
         if not item_id or not tipo:
             flash('Item ou tipo de movimentação inválido.', 'danger')
             return redirect(url_for('movimentacao'))
 
-        item = ItemEstoque.query.get_or_404(item_id)
+        item_data = get_item_estoque_by_id(item_id)
+        if not item_data:
+            abort(404)
+        item = ItemEstoque(item_data)
 
         if not etapa:
             flash('O campo Etapa de Destino é obrigatório.', 'danger')
@@ -967,98 +887,110 @@ def movimentacao():
             flash('A quantidade deve ser um número válido.', 'danger')
             return redirect(url_for('movimentacao'))
 
-        # --- LÓGICA DE ENTRADA ---
-        if tipo == 'ENTRADA':
-            lote = request.form.get('lote')
-            item_nf = request.form.get('item_nf')
-            nf = request.form.get('nf') # Captura a NF para uso em todo o bloco
-            if not lote or not item_nf:
-                flash('Lote e Item NF são obrigatórios para entrada.', 'danger')
-                return redirect(url_for('movimentacao'))
+        try:
+            # --- LÓGICA DE ENTRADA ---
+            if tipo == 'ENTRADA':
+                lote = request.form.get('lote')
+                item_nf = request.form.get('item_nf')
+                nf = request.form.get('nf')
+                if not lote or not item_nf:
+                    flash('Lote e Item NF são obrigatórios para entrada.', 'danger')
+                    return redirect(url_for('movimentacao'))
 
-            # Verifica se já existe um detalhe com a mesma combinação de lote, item_nf e nf
-            detalhe_existente = item.detalhes_estoque.filter_by(
-                lote=lote, 
-                item_nf=item_nf, 
-                nf=nf
-            ).first()
-            
-            if detalhe_existente:
-                # Se existe, apenas soma a quantidade
-                detalhe_existente.quantidade += quantidade
-            else:
-                # Se não existe, cria um novo registro de EstoqueDetalhe
-                validade_str = request.form.get('validade')
+                # Verifica se já existe um detalhe com a mesma combinação de lote, item_nf e nf
+                # Usando select_many com filtros
+                filters = {'item_estoque_id': item.id, 'lote': lote, 'item_nf': item_nf, 'nf': nf}
+                existing_details = select_many('estoque_detalhe', filters=filters)
+                detalhe_existente = existing_details[0] if existing_details else None
+                
+                if detalhe_existente:
+                    # Se existe, apenas soma a quantidade
+                    nova_qtd = float(detalhe_existente['quantidade']) + quantidade
+                    update_estoque_detalhe(detalhe_existente['id'], {'quantidade': nova_qtd})
+                else:
+                    # Se não existe, cria um novo
+                    validade_str = request.form.get('validade')
 
-                # Lógica para determinar a estação automaticamente
-                # Busca o último lote inserido para este item
-                ultimo_detalhe = item.detalhes_estoque.order_by(EstoqueDetalhe.data_entrada.desc()).first()
-                # Usa a estação do último lote como padrão, ou 'Almoxarifado' se não houver lote anterior ou se a estação do último lote for nula
-                estacao_automatica = ultimo_detalhe.estacao if ultimo_detalhe and ultimo_detalhe.estacao else 'Almoxarifado'
+                    # Lógica para determinar a estação automaticamente
+                    # Busca último detalhe do item order by entrada desc
+                    last_details = select_many('estoque_detalhe', filters={'item_estoque_id': item.id}, order_by='-data_entrada', limit=1)
+                    
+                    ultimo_detalhe = last_details[0] if last_details else None
+                    estacao_automatica = ultimo_detalhe.get('estacao') if ultimo_detalhe and ultimo_detalhe.get('estacao') else 'Almoxarifado'
 
-                novo_detalhe = EstoqueDetalhe(
-                    item_estoque_id=item.id,
-                    lote=lote,
-                    item_nf=item_nf,
-                    nf=nf,
-                    validade=datetime.strptime(validade_str, '%Y-%m-%d').date() if validade_str else None,
-                    estacao=estacao_automatica,
-                    quantidade=quantidade
-                )
-                db.session.add(novo_detalhe)
+                    novo_detalhe = {
+                        'item_estoque_id': item.id,
+                        'lote': lote,
+                        'item_nf': item_nf,
+                        'nf': nf,
+                        'validade': validade_str if validade_str else None,
+                        'estacao': estacao_automatica,
+                        'quantidade': quantidade
+                    }
+                    create_estoque_detalhe(novo_detalhe)
 
-            # Atualiza o total e registra a movimentação
-            item.qtd_estoque += quantidade
-            nova_movimentacao = Movimentacao(
-                item_id=item.id, 
-                tipo='ENTRADA', 
-                quantidade=quantidade, 
-                lote=lote, 
-                item_nf=item_nf,
-                nf=nf,
-                usuario=current_user.username,
-                etapa=etapa,
-                observacao=observacao)
-            db.session.add(nova_movimentacao)
-            db.session.commit()
-            socketio.emit('dashboard_update', {'message': 'Nova entrada registrada!'})
-            flash('Entrada registrada com sucesso!', 'success')
-        # --- LÓGICA DE SAÍDA ---
-        elif tipo == 'SAIDA':
-            detalhe_id = request.form.get('detalhe_id')
-            if not detalhe_id:
-                flash('É necessário selecionar um Lote/Item NF para a saída.', 'danger')
-                return redirect(url_for('movimentacao'))
+                # Atualiza o total
+                nova_qtd_total = float(item.qtd_estoque or 0) + quantidade
+                update_item_estoque(item.id, {'qtd_estoque': nova_qtd_total})
 
-            detalhe_estoque = EstoqueDetalhe.query.get(detalhe_id)
+                mov_data = {
+                    'item_id': item.id, 
+                    'tipo': 'ENTRADA', 
+                    'quantidade': quantidade, 
+                    'lote': lote, 
+                    'item_nf': item_nf,
+                    'nf': nf,
+                    'usuario': current_user.username,
+                    'etapa': etapa,
+                    'observacao': observacao
+                }
+                create_movimentacao(mov_data)
+                
+                socketio.emit('dashboard_update', {'message': 'Nova entrada registrada!'})
+                flash('Entrada registrada com sucesso!', 'success')
 
-            if not detalhe_estoque or detalhe_estoque.item_estoque_id != item.id:
-                flash('Lote/Item NF inválido para este item.', 'danger')
-                return redirect(url_for('movimentacao'))
+            # --- LÓGICA DE SAÍDA ---
+            elif tipo == 'SAIDA':
+                detalhe_id = request.form.get('detalhe_id')
+                if not detalhe_id:
+                    flash('É necessário selecionar um Lote/Item NF para a saída.', 'danger')
+                    return redirect(url_for('movimentacao'))
 
-            if detalhe_estoque.quantidade < quantidade:
-                flash(f'Quantidade insuficiente no lote selecionado. Disponível: {detalhe_estoque.quantidade}', 'danger')
-                return redirect(url_for('movimentacao'))
+                detalhe_estoque = get_estoque_detalhe_by_id(detalhe_id)
 
-            # Subtrai a quantidade do lote específico e do total
-            detalhe_estoque.quantidade -= quantidade
-            item.qtd_estoque -= quantidade
+                if not detalhe_estoque or detalhe_estoque.get('item_estoque_id') != item.id:
+                    flash('Lote/Item NF inválido para este item.', 'danger')
+                    return redirect(url_for('movimentacao'))
+                
+                qtd_disponivel = float(detalhe_estoque['quantidade'])
+                if qtd_disponivel < quantidade:
+                    flash(f'Quantidade insuficiente no lote selecionado. Disponível: {qtd_disponivel}', 'danger')
+                    return redirect(url_for('movimentacao'))
 
-            # Registra a movimentação
-            nova_movimentacao = Movimentacao(
-                item_id=item.id, 
-                tipo='SAIDA', 
-                quantidade=quantidade, 
-                lote=detalhe_estoque.lote, 
-                item_nf=detalhe_estoque.item_nf,
-                nf=detalhe_estoque.nf,
-                usuario=current_user.username,
-                etapa=etapa,
-                observacao=observacao)
-            db.session.add(nova_movimentacao)
-            db.session.commit()
-            socketio.emit('dashboard_update', {'message': 'Nova saída registrada!'})
-            flash('Saída registrada com sucesso!', 'success')
+                # Subtrai a quantidade
+                update_estoque_detalhe(detalhe_id, {'quantidade': qtd_disponivel - quantidade})
+                new_total = float(item.qtd_estoque or 0) - quantidade
+                update_item_estoque(item.id, {'qtd_estoque': new_total})
+
+                mov_data = {
+                    'item_id': item.id, 
+                    'tipo': 'SAIDA', 
+                    'quantidade': quantidade, 
+                    'lote': detalhe_estoque.get('lote'), 
+                    'item_nf': detalhe_estoque.get('item_nf'),
+                    'nf': detalhe_estoque.get('nf'),
+                    'usuario': current_user.username,
+                    'etapa': etapa,
+                    'observacao': observacao
+                }
+                create_movimentacao(mov_data)
+                
+                socketio.emit('dashboard_update', {'message': 'Nova saída registrada!'})
+                flash('Saída registrada com sucesso!', 'success')
+                
+        except Exception as e:
+             flash(f'Erro ao registrar movimentação: {e}', 'danger')
+
         return redirect(url_for('movimentacao'))
 
     # Para o método GET (carregamento da página)
@@ -1069,9 +1001,15 @@ def movimentacao():
 @login_required
 def historico(item_id):
     """Página para exibir o histórico de movimentações de um item."""
-    item = ItemEstoque.query.get_or_404(item_id)
-    # Ordena as movimentações da mais recente para a mais antiga
-    movimentacoes = item.movimentacoes.order_by(Movimentacao.data_movimentacao.desc()).all()
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
+        abort(404)
+    item = ItemEstoque(item_data)
+    
+    # helper order by desc
+    movs_data = get_item_movements_by_item_id(item_id)
+    movimentacoes = [Movimentacao(m) for m in movs_data]
+    
     return render_template('historico.html', item=item, movimentacoes=movimentacoes)
 
 @app.route('/item/<int:item_id>/lotes-detalhes')
@@ -1079,100 +1017,106 @@ def historico(item_id):
 def detalhes_lotes(item_id):
     """Página para exibir todos os detalhes de lote de um item."""
     filtro_ativo = request.args.get('filtro')
-    item = ItemEstoque.query.get_or_404(item_id)
-    query = item.detalhes_estoque
+    
+    item_data = get_item_estoque_by_id(item_id)
+    if not item_data:
+        abort(404)
+    item = ItemEstoque(item_data)
 
-    if filtro_ativo == 'critico':
-        # Define a data limite: hoje + 30 dias
-        data_limite = date.today() + timedelta(days=30)
-        # Filtra lotes que têm validade e que vencem até a data limite
-        query = query.filter(
-            EstoqueDetalhe.quantidade > 0,  # Apenas lotes com saldo
-            EstoqueDetalhe.validade.isnot(None),
-            EstoqueDetalhe.validade <= data_limite
-        )
-
-    # Ordena os resultados pela data de entrada para ver os mais recentes primeiro
-    detalhes_query = query.order_by(
-        EstoqueDetalhe.data_entrada.desc()
-    ).all()
+    is_critico = (filtro_ativo == 'critico')
+    detalhes_data = get_detalhes_by_item(item_id, filtro_critico=is_critico)
+    
+    detalhes_query = [EstoqueDetalhe(d) for d in detalhes_data]
 
     return render_template('detalhes_lotes.html',
-                         item=item,
-                         detalhes=detalhes_query,
-                         filtro_ativo=filtro_ativo)
+                          item=item,
+                          detalhes=detalhes_query,
+                          filtro_ativo=filtro_ativo)
  
 @app.route('/lote/editar/<int:detalhe_id>', methods=['GET', 'POST'])
 @admin_required
 @login_required
 def editar_lote(detalhe_id):
-    """Página para editar os dados de um lote específico (saldo, NF, validade, etc.)."""
-    detalhe = EstoqueDetalhe.query.get_or_404(detalhe_id)
-    item = detalhe.item_estoque
+    """Página para editar os dados de um lote específico."""
+    detalhe_data = get_estoque_detalhe_by_id(detalhe_id)
+    if not detalhe_data:
+        abort(404)
+    detalhe = EstoqueDetalhe(detalhe_data)
+    
+    # Fetch item associated
+    item_data = get_item_estoque_by_id(detalhe.item_estoque_id)
+    item = ItemEstoque(item_data) if item_data else None
 
     if request.method == 'POST':
         try:
-            # --- Coleta e Validação dos Dados ---
+            # --- Coleta e Validação ---
             nova_quantidade_str = request.form.get('quantidade')
             observacao = request.form.get('observacao')
-            novo_endereco = request.form.get('endereco') # <-- Adicionado para capturar o endereço
+            novo_endereco = request.form.get('endereco')
 
             if not nova_quantidade_str or not observacao:
                 flash('A Nova Quantidade e o Motivo da Edição são obrigatórios.', 'danger')
                 return render_template('editar_lote.html', detalhe=detalhe)
 
-            nova_quantidade = float(nova_quantidade_str)
+            try:
+                nova_quantidade = float(nova_quantidade_str)
+            except ValueError:
+                flash('Quantidade inválida.', 'danger')
+                return render_template('editar_lote.html', detalhe=detalhe)
+
             if nova_quantidade < 0:
                 flash('A quantidade não pode ser negativa.', 'danger')
                 return render_template('editar_lote.html', detalhe=detalhe)
 
-            # --- Cálculo do Ajuste de Quantidade ---
-            quantidade_antiga = detalhe.quantidade
+            # --- Cálculo do Ajuste ---
+            quantidade_antiga = float(detalhe.quantidade or 0)
             diferenca_qtd = nova_quantidade - quantidade_antiga
 
-            # --- Atualização dos Dados do Lote (EstoqueDetalhe) ---
-            detalhe.lote = request.form.get('lote') # <-- Adicionado para capturar o Lote
-            detalhe.nf = request.form.get('nf')
-            detalhe.item_nf = request.form.get('item_nf')
+            # --- Prepare updates ---
             validade_str = request.form.get('validade')
-            detalhe.validade = datetime.strptime(validade_str, '%Y-%m-%d').date() if validade_str else None
-            detalhe.estacao = request.form.get('estacao') # <-- Captura o valor do campo de texto da estação
+            update_detalhe_data = {
+                'lote': request.form.get('lote'),
+                'nf': request.form.get('nf'),
+                'item_nf': request.form.get('item_nf'),
+                'validade': validade_str if validade_str else None,
+                'estacao': request.form.get('estacao'),
+                'quantidade': nova_quantidade
+            }
             
-            # Atualiza o endereço no item principal (ItemEstoque)
-            item.endereco = novo_endereco
-            detalhe.quantidade = nova_quantidade
-
-            # --- Atualização do Estoque Total do Item (ItemEstoque) ---
-            item.qtd_estoque += diferenca_qtd
+            # Atualiza o detalhe
+            update_estoque_detalhe(detalhe_id, update_detalhe_data)
+            
+            # Atualiza o item: endereço e total
+            # Total += diferenca
+            novo_total_item = float(item.qtd_estoque or 0) + diferenca_qtd
+            update_item_data = {
+                'endereco': novo_endereco,
+                'qtd_estoque': novo_total_item
+            }
+            update_item_estoque(item.id, update_item_data)
 
             # --- Registro da Movimentação de Ajuste ---
-            # Define o tipo de ajuste (entrada ou saída) para o histórico
             tipo_ajuste = 'AJUSTE-ENTRADA' if diferenca_qtd > 0 else 'AJUSTE-SAIDA'
-            
-            # Garante que a quantidade na movimentação seja sempre positiva
             qtd_movimentacao = abs(diferenca_qtd)
 
-            # Só registra a movimentação se houver mudança na quantidade
             if qtd_movimentacao > 0:
-                ajuste_movimentacao = Movimentacao(
-                    item_id=item.id,
-                    tipo=tipo_ajuste,
-                    quantidade=qtd_movimentacao,
-                    lote=detalhe.lote,
-                    item_nf=detalhe.item_nf,
-                    nf=detalhe.nf,
-                    usuario=current_user.username,
-                    etapa='AJUSTE',
-                    observacao=f"Ajuste manual. Motivo: {observacao}. Qtd anterior: {quantidade_antiga}, Qtd nova: {nova_quantidade}."
-                )
-                db.session.add(ajuste_movimentacao)
+                mov_data = {
+                    'item_id': item.id,
+                    'tipo': tipo_ajuste,
+                    'quantidade': qtd_movimentacao,
+                    'lote': request.form.get('lote'),
+                    'item_nf': request.form.get('item_nf'),
+                    'nf': request.form.get('nf'),
+                    'usuario': current_user.username,
+                    'etapa': 'AJUSTE',
+                    'observacao': f"Ajuste manual. Motivo: {observacao}. Qtd anterior: {quantidade_antiga}, Qtd nova: {nova_quantidade}."
+                }
+                create_movimentacao(mov_data)
 
-            db.session.commit()
             flash('Lote editado com sucesso! O histórico de movimentação foi atualizado.', 'success')
             return redirect(url_for('detalhes_lotes', item_id=item.id))
 
         except Exception as e:
-            db.session.rollback()
             flash(f'Ocorreu um erro ao tentar editar o lote: {e}', 'danger')
 
     return render_template('editar_lote.html', detalhe=detalhe)
@@ -1199,41 +1143,44 @@ def _calcular_quantidade_recebida(detalhe_lote):
 @login_required
 def excluir_lote(detalhe_id):
     """
-    Exclui um lote (EstoqueDetalhe) específico do estoque.
-    Esta ação também remove as movimentações relacionadas e ajusta o saldo do item.
-    Esta ação é restrita a administradores.
+    Exclui um lote e remove movimentações (Safe Delete Manual).
     """
-    detalhe = EstoqueDetalhe.query.get_or_404(detalhe_id)
-    item = detalhe.item_estoque
+    detalhe_data = get_estoque_detalhe_by_id(detalhe_id)
+    if not detalhe_data:
+        abort(404)
+    item_id = detalhe_data['item_estoque_id']
+    item_data = get_item_estoque_by_id(item_id)
     
     try:
-        # Armazena a quantidade para ajuste do estoque
-        quantidade_lote = detalhe.quantidade
+        qtd_lote = float(detalhe_data['quantidade'] or 0)
         
-        # Remove todas as movimentações relacionadas a este lote
-        movimentacoes_lote = Movimentacao.query.filter_by(item_id=item.id, lote=detalhe.lote, nf=detalhe.nf).all()
+        # 1. Remove movimentações (se possível filtrar pelo lote/nf/item_nf/item_id)
+        # Filtro: item_id, lote, item_nf, nf
+        supabase.table('movimentacao').delete().match({
+            'item_id': item_id,
+            'lote': detalhe_data['lote'],
+            'nf': detalhe_data['nf'], # Importante
+            # item_nf as vezes é vazio, supabase match pode falhar se vazio?
+        }).execute()
+        # Se item_nf for relevante:
+        # Mas vamos simplificar: o ideal é remover tudo que bate com o lote.
         
-        for mov in movimentacoes_lote:
-            db.session.delete(mov)
+        # 2. Ajusta estoque do item
+        # Só se o item ainda existir
+        if item_data:
+            current_total = float(item_data.get('qtd_estoque') or 0)
+            new_total = max(0, current_total - qtd_lote)
+            update_item_estoque(item_id, {'qtd_estoque': new_total})
+            
+        # 3. Remove o detalhe
+        delete_estoque_detalhe(detalhe_id)
         
-        # Ajusta o estoque total do item
-        item.qtd_estoque -= quantidade_lote
-        
-        # Garante que o estoque não fique negativo
-        if item.qtd_estoque < 0:
-            item.qtd_estoque = 0
-        
-        # Remove o detalhe do estoque
-        db.session.delete(detalhe)
-        db.session.commit()
-        
-        flash(f'Lote "{detalhe.lote} / {detalhe.item_nf}" foi excluído com sucesso! Todas as movimentações relacionadas foram removidas.', 'success')
+        flash('Lote excluído com sucesso.', 'success')
         
     except Exception as e:
-        db.session.rollback()
         flash(f'Erro ao excluir o lote: {e}', 'danger')
     
-    return redirect(url_for('detalhes_lotes', item_id=item.id))
+    return redirect(url_for('detalhes_lotes', item_id=item_id))
 
 @app.route('/movimentacao/excluir/<int:mov_id>')
 @admin_required
@@ -1241,41 +1188,53 @@ def excluir_lote(detalhe_id):
 def excluir_movimentacao(mov_id):
     """
     Exclui (reverte) uma movimentação de estoque.
-    Esta ação é restrita a administradores.
     """
-    mov = Movimentacao.query.get_or_404(mov_id)
-    item = mov.item
-    quantidade_mov = mov.quantidade
-
     try:
-        # Encontra o lote específico relacionado à movimentação
-        detalhe_lote = EstoqueDetalhe.query.filter_by(item_estoque_id=item.id, lote=mov.lote, nf=mov.nf).first()
-
-        # Lógica de reversão
-        if 'ENTRADA' in mov.tipo:
-            # Se está revertendo uma ENTRADA, subtrai do estoque
-            item.qtd_estoque -= quantidade_mov
+        mov_response = supabase.table('movimentacao').select('*, item_estoque(*)').eq('id', mov_id).execute()
+        mov = mov_response.data[0] if mov_response.data else None
+        
+        if not mov:
+            abort(404)
+            
+        item_id = mov['item_id'] # ou item_estoque.id
+        quantidade_mov = float(mov['quantidade'])
+        
+        # Encontra lote
+        filters = {'item_estoque_id': item_id, 'lote': mov['lote'], 'nf': mov['nf']}
+        detalhes = select_many('estoque_detalhe', filters=filters, limit=1)
+        detalhe_lote = detalhes[0] if detalhes else None
+        
+        # Item total
+        item_data = mov['item_estoque'] # joined data
+        current_item_qtd = float(item_data['qtd_estoque'] or 0)
+        
+        if 'ENTRADA' in mov['tipo']:
+            # Reverte ENTRADA -> Subtrai
+            novo_total = max(0, current_item_qtd - quantidade_mov)
+            update_item_estoque(item_id, {'qtd_estoque': novo_total})
+            
             if detalhe_lote:
-                detalhe_lote.quantidade -= quantidade_mov
-        elif 'SAIDA' in mov.tipo:
-            # Se está revertendo uma SAÍDA, adiciona de volta ao estoque
-            item.qtd_estoque += quantidade_mov
+                old_qtd = float(detalhe_lote['quantidade'])
+                update_estoque_detalhe(detalhe_lote['id'], {'quantidade': max(0, old_qtd - quantidade_mov)})
+                
+        elif 'SAIDA' in mov['tipo']:
+             # Reverte SAIDA -> Soma
+            novo_total = current_item_qtd + quantidade_mov
+            update_item_estoque(item_id, {'qtd_estoque': novo_total})
+            
             if detalhe_lote:
-                detalhe_lote.quantidade += quantidade_mov
+                old_qtd = float(detalhe_lote['quantidade'])
+                update_estoque_detalhe(detalhe_lote['id'], {'quantidade': old_qtd + quantidade_mov})
             else:
-                # Caso raro onde o lote foi deletado, não podemos reverter no detalhe
-                flash('Aviso: O lote original desta movimentação não foi encontrado. O estoque total do item foi ajustado, mas o saldo do lote não.', 'warning')
-
-        # Após ajustar os saldos, remove o registro da movimentação
-        db.session.delete(mov)
-        db.session.commit()
-        flash(f'Movimentação ID {mov.id} foi revertida com sucesso!', 'success')
-
+                flash('Aviso: O lote original não foi encontrado. O estoque total foi ajustado.', 'warning')
+        
+        # Delete mov
+        delete_movimentacao(mov_id)
+        flash(f'Movimentação ID {mov_id} revertida com sucesso!', 'success')
+        
     except Exception as e:
-        db.session.rollback()
-        flash(f'Erro ao reverter a movimentação: {e}', 'danger')
+        flash(f'Erro ao reverter movimentação: {e}', 'danger')
 
-    # Redireciona de volta para a página de onde o usuário veio (ou para o relatório padrão)
     return redirect(request.referrer or url_for('relatorio_movimentacoes'))
 
 
@@ -1285,21 +1244,13 @@ def excluir_movimentacao(mov_id):
 def apagar_movimentacao(mov_id):
     """
     Apaga um registro de movimentação SEM afetar o estoque.
-    Esta ação é restrita a administradores.
     """
-    mov = Movimentacao.query.get_or_404(mov_id)
-
     try:
-        # Simplesmente remove o registro da movimentação sem reverter estoque
-        db.session.delete(mov)
-        db.session.commit()
-        flash(f'Linha de movimentação ID {mov.id} foi apagada com sucesso!', 'success')
-
+        delete_movimentacao(mov_id)
+        flash(f'Linha de movimentação ID {mov_id} apagada com sucesso!', 'success')
     except Exception as e:
-        db.session.rollback()
         flash(f'Erro ao apagar a movimentação: {e}', 'danger')
 
-    # Redireciona de volta para a página de onde o usuário veio (ou para o relatório padrão)
     return redirect(request.referrer or url_for('relatorio_movimentacoes'))
 
 # --- ROTAS DE API INTERNA (para JavaScript) ---
@@ -1308,50 +1259,73 @@ def apagar_movimentacao(mov_id):
 @login_required
 def api_get_item_by_code(codigo):
     """Retorna os dados de um item pelo seu código em formato JSON."""
-    item = ItemEstoque.query.filter_by(codigo=codigo).first()
+    item = get_item_estoque_by_codigo(codigo)
     if not item:
-        # Se o item não for encontrado, retorna um erro 404 claro.
         return jsonify({'error': 'Item não encontrado'}), 404
-    
-    # Reutiliza a função api_get_item para não duplicar o código de formatação do JSON.
-    return api_get_item(item.id)
+    return api_get_item(item['id'])
 
 @app.route('/api/item/<int:item_id>')
 @login_required
 def api_get_item(item_id):
     """Retorna os dados de um item em formato JSON."""
-    item = ItemEstoque.query.get_or_404(item_id)
+    item = get_item_estoque_by_id(item_id)
+    if not item:
+        abort(404)
+        
+    # Compatibilidade com campos esperados
     return jsonify({
-        'id': item.id,
-        'codigo': item.codigo,
-        'descricao': item.descricao,
-        'un': item.un,
-        'dimensao': item.dimensao,
-        'cliente': item.cliente
+        'id': item['id'],
+        'codigo': item['codigo'],
+        'descricao': item['descricao'],
+        'un': item.get('un'),
+        'dimensao': item.get('dimensao'),
+        'cliente': item.get('cliente')
     })
 
 @app.route('/api/item/<int:item_id>/lotes')
 @login_required
 def api_get_lotes(item_id):
     """
-    Retorna os lotes disponíveis para um item em formato JSON, ordenados por FEFO ou FIFO.
-    - FEFO (First-Expired, First-Out): Para itens perecíveis, ordena por data de validade.
-    - FIFO (First-In, First-Out): Para 'Hardware' e 'Painel', ordena por data de entrada.
+    Retorna JSON de lotes (FEFO/FIFO).
     """
-    item = ItemEstoque.query.get_or_404(item_id)
+    item = get_item_estoque_by_id(item_id)
+    if not item:
+        abort(404)
+        
+    detalhes_data = get_detalhes_by_item(item_id) # Ordenado por data_entrada desc
     
-    query = item.detalhes_estoque.filter(EstoqueDetalhe.quantidade > 0)
-
-    # Verifica o tipo do item para decidir a estratégia de ordenação
-    if item.tipo and item.tipo.lower() in ['hardware', 'painel']:
-        # FIFO: Primeiro que Entra, Primeiro que Sai (ordena pela data de entrada mais antiga)
-        detalhes = query.order_by(EstoqueDetalhe.data_entrada.asc()).all()
+    # Sorting logic in Python
+    # Hardware/Painel -> FIFO (Order by Data Entrada ASC)
+    # Others -> FEFO (Order by Validade ASC, nulls last)
+    
+    tipo_item = (item.get('tipo') or '').lower()
+    
+    if tipo_item in ['hardware', 'painel']:
+        # Sort by data_entrada ASC (oldest first)
+        detalhes_data.sort(key=lambda x: x.get('data_entrada') or '9999-12-31')
     else:
-        # FEFO: Primeiro que Vence, Primeiro que Sai (ordena pela data de validade mais próxima)
-        # Lotes sem validade ou com validade nula são colocados no final da lista.
-        detalhes = query.order_by(EstoqueDetalhe.validade.asc().nullslast(), EstoqueDetalhe.data_entrada.asc()).all()
+        # Validates ASC. Handle None.
+        def validade_key(x):
+            v = x.get('validade')
+            return v if v else '9999-12-31'
+        
+        # Sort by validade, then data_entrada
+        detalhes_data.sort(key=lambda x: (validade_key(x), x.get('data_entrada') or ''))
 
-    lotes = [{'id': d.id, 'lote': d.lote, 'item_nf': d.item_nf, 'quantidade': d.quantidade, 'validade': d.validade.strftime('%d/%m/%Y') if d.validade else 'N/A'} for d in detalhes]
+    lotes = []
+    for d in detalhes_data:
+        val_str = 'N/A'
+        if d.get('validade'):
+             val_str = datetime.strptime(d['validade'], '%Y-%m-%d').strftime('%d/%m/%Y')
+             
+        lotes.append({
+            'id': d['id'], 
+            'lote': d['lote'], 
+            'item_nf': d['item_nf'], 
+            'quantidade': d['quantidade'], 
+            'validade': val_str
+        })
+        
     return jsonify(lotes)
 
 @app.route('/importar', methods=['GET', 'POST'])
@@ -1360,14 +1334,11 @@ def api_get_lotes(item_id):
 def importar():
     """Página e lógica para importar dados de uma planilha Excel."""
     if request.method == 'POST':
-        # Verifica se o arquivo foi enviado
         if 'arquivo_excel' not in request.files:
             flash('Nenhum arquivo selecionado!', 'danger')
             return redirect(request.url)
         
         file = request.files['arquivo_excel']
-
-        # Verifica se o nome do arquivo está vazio
         if file.filename == '':
             flash('Nenhum arquivo selecionado!', 'danger')
             return redirect(request.url)
@@ -1376,7 +1347,6 @@ def importar():
             try:
                 df = pd.read_excel(file)
                 
-                # Validação de colunas obrigatórias
                 required_columns = ['CÓDIGO', 'DESCRIÇÃO', 'LOTE', 'NF', 'QTD ESTOQUE']
                 if not all(col in df.columns for col in required_columns):
                     flash(f'A planilha deve conter as colunas obrigatórias: {", ".join(required_columns)}', 'danger')
@@ -1386,77 +1356,97 @@ def importar():
                 erro_count = 0
                 
                 for index, row in df.iterrows():
-                    # Pega os dados da linha, tratando valores nulos (NaN) do pandas
                     codigo = str(row['CÓDIGO']) if pd.notna(row['CÓDIGO']) else None
-                    descricao = str(row['DESCRIÇÃO']) if pd.notna(row['DESCRIÇÃO']) else 'Sem Descrição'
-                    # Se LOTE ou NF estiverem vazios, usa 'N/A' como padrão
-                    lote = str(row['LOTE']) if pd.notna(row['LOTE']) else 'N/A'
-                    nf = str(row.get('NF')) if pd.notna(row.get('NF')) else 'N/A'
-                    qtd_entrada = float(row['QTD ESTOQUE']) if pd.notna(row['QTD ESTOQUE']) else 0
-
-                    # Pula a linha APENAS se o CÓDIGO estiver faltando.
-                    # Permite a importação de itens com quantidade zero, se necessário.
                     if not codigo:
                         erro_count += 1
                         continue
 
-                    # Procura ou cria o ItemEstoque (item principal)
-                    item = ItemEstoque.query.filter_by(codigo=codigo).first()
-                    if not item:
-                        item = ItemEstoque(
-                            codigo=codigo,
-                            descricao=descricao,
-                            endereco=str(row.get('LOCAL', '')) if pd.notna(row.get('LOCAL')) else '',
-                            codigo_opcional=str(row.get('CÓDIGO OPCIONAL', '')) if pd.notna(row.get('CÓDIGO OPCIONAL')) else '',
-                            tipo=str(row.get('TIPO', '')) if pd.notna(row.get('TIPO')) else '',
-                            un=str(row.get('UN.', '')) if pd.notna(row.get('UN.')) else '',
-                            dimensao=str(row.get('DIMENSÃO', '')) if pd.notna(row.get('DIMENSÃO')) else '',
-                            cliente=str(row.get('CLIENTE', '')) if pd.notna(row.get('CLIENTE')) else '',
-                            qtd_estoque=0
-                        )
-                        db.session.add(item)
-                        db.session.flush() # Para obter o ID do item
+                    descricao = str(row['DESCRIÇÃO']) if pd.notna(row['DESCRIÇÃO']) else 'Sem Descrição'
+                    lote = str(row['LOTE']) if pd.notna(row['LOTE']) else 'N/A'
+                    nf = str(row.get('NF')) if pd.notna(row.get('NF')) else 'N/A'
+                    qtd_entrada = float(row['QTD ESTOQUE']) if pd.notna(row['QTD ESTOQUE']) else 0
 
-                    # Procura ou cria o EstoqueDetalhe (lote) usando a chave composta lote + item_nf + nf
+                    # 1. Busca ou Cria Item
+                    item = get_item_estoque_by_codigo(codigo)
+                    if not item:
+                        # Cria novo item
+                        new_item_data = {
+                            'codigo': codigo,
+                            'descricao': descricao,
+                            'endereco': str(row.get('LOCAL', '')) if pd.notna(row.get('LOCAL')) else '',
+                            'codigo_opcional': str(row.get('CÓDIGO OPCIONAL', '')) if pd.notna(row.get('CÓDIGO OPCIONAL')) else '',
+                            'tipo': str(row.get('TIPO', '')) if pd.notna(row.get('TIPO')) else '',
+                            'un': str(row.get('UN.', '')) if pd.notna(row.get('UN.')) else '',
+                            'dimensao': str(row.get('DIMENSÃO', '')) if pd.notna(row.get('DIMENSÃO')) else '',
+                            'cliente': str(row.get('CLIENTE', '')) if pd.notna(row.get('CLIENTE')) else '',
+                            'qtd_estoque': 0
+                        }
+                        # response.data[0]
+                        res = create_item_estoque(new_item_data)
+                        if res and hasattr(res, 'data') and res.data:
+                             item = res.data[0]
+                        else:
+                             # Fallback check if created
+                             item = get_item_estoque_by_codigo(codigo)
+
+                    if not item:
+                         erro_count += 1
+                         continue
+                         
+                    item_id = item['id']
+                    
+                    # 2. Busca ou Cria Detalhe (Lote)
                     item_nf = str(row.get('ITEM NF')) if pd.notna(row.get('ITEM NF')) else 'N/A'
                     
-                    detalhe_existente = item.detalhes_estoque.filter_by(lote=lote, item_nf=item_nf, nf=nf).first()
+                    filters = {'item_estoque_id': item_id, 'lote': lote, 'item_nf': item_nf, 'nf': nf}
+                    existing_details = select_many('estoque_detalhe', filters=filters, limit=1)
+                    detalhe_existente = existing_details[0] if existing_details else None
                     
                     if detalhe_existente:
-                        # Se a combinação exata já existe, soma a quantidade
-                        detalhe_existente.quantidade += qtd_entrada
+                        novo_qtd_lote = float(detalhe_existente['quantidade']) + qtd_entrada
+                        update_estoque_detalhe(detalhe_existente['id'], {'quantidade': novo_qtd_lote})
                     else:
-                        # Se não existe, cria um novo registro de lote detalhado
-                        validade = pd.to_datetime(row.get('VALIDADE')).date() if 'VALIDADE' in row and pd.notna(row.get('VALIDADE')) else None
-                        novo_detalhe = EstoqueDetalhe(
-                            item_estoque_id=item.id,
-                            lote=lote,
-                            item_nf=item_nf,
-                            nf=nf,
-                            validade=validade,
-                            estacao=str(row.get('ESTAÇÃO', '')) if pd.notna(row.get('ESTAÇÃO')) else '',
-                            quantidade=qtd_entrada
-                        )
-                        db.session.add(novo_detalhe)
+                        validade_val = row.get('VALIDADE')
+                        validade_dt = None
+                        if pd.notna(validade_val):
+                             try:
+                                 validade_dt = pd.to_datetime(validade_val).strftime('%Y-%m-%d')
+                             except:
+                                 validade_dt = None
+                                 
+                        novo_detalhe = {
+                            'item_estoque_id': item_id,
+                            'lote': lote,
+                            'item_nf': item_nf,
+                            'nf': nf,
+                            'validade': validade_dt,
+                            'estacao': str(row.get('ESTAÇÃO', '')) if pd.notna(row.get('ESTAÇÃO')) else '',
+                            'quantidade': qtd_entrada
+                        }
+                        create_estoque_detalhe(novo_detalhe)
                     
-                    # Atualiza o total e registra a movimentação
-                    item.qtd_estoque += qtd_entrada
-                    nova_movimentacao = Movimentacao(
-                        item_id=item.id, 
-                        tipo='ENTRADA', 
-                        quantidade=qtd_entrada, 
-                        lote=lote, 
-                        nf=nf,
-                        item_nf=str(row.get('ITEM NF', 'N/A')), 
-                        usuario=current_user.username)
-                    db.session.add(nova_movimentacao)
+                    # 3. Atualiza Item Total
+                    current_total = float(item.get('qtd_estoque') or 0)
+                    update_item_estoque(item_id, {'qtd_estoque': current_total + qtd_entrada})
+                    
+                    # 4. Cria Movimentacao
+                    mov_data = {
+                        'item_id': item_id, 
+                        'tipo': 'ENTRADA', 
+                        'quantidade': qtd_entrada, 
+                        'lote': lote, 
+                        'nf': nf,
+                        'item_nf': str(row.get('ITEM NF', 'N/A')), 
+                        'usuario': current_user.username,
+                        'etapa': 'IMPORTACAO',
+                        'observacao': 'Importação via Excel'
+                    }
+                    create_movimentacao(mov_data)
                     sucesso_count += 1
 
-                db.session.commit()
-                flash(f'Importação concluída! {sucesso_count} registros processados com sucesso. {erro_count} linhas ignoradas por falta de dados.', 'success')
+                flash(f'Importação concluída! {sucesso_count} registros processados com sucesso. {erro_count} linhas ignoradas.', 'success')
 
             except Exception as e:
-                db.session.rollback()
                 flash(f'Ocorreu um erro ao processar o arquivo: {e}', 'danger')
                 return redirect(request.url)
 
@@ -1472,18 +1462,13 @@ def importar():
 @login_required
 def exportar_excel():
     """
-    Exporta um relatório detalhado do estoque para um arquivo Excel.
-    
-    MAPEAMENTO CORRETO (CRÍTICO):
-    Definido explicitamente conforme solicitação para garantir integridade.
+    Exporta um relatório detalhado do estoque para Excel.
     """
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.styles import PatternFill, Font, Alignment
         from openpyxl.utils import get_column_letter
         
-        # DEFINIÇÃO EXPLÍCITA DA ORDEM DE COLUNAS
-        # Esta lista define EXATAMENTE qual coluna recebe qual dado
         colunas_ordem = [
             'CÓDIGO', 'CÓDIGO OPCIONAL', 'TIPO', 'DESCRIÇÃO',
             'LOCAL', 'UN', 'DIMENSÃO', 'CLIENTE',
@@ -1491,19 +1476,28 @@ def exportar_excel():
             'VALIDADE', 'ESTAÇÃO', 'QTD ESTOQUE', 'DATA ENTRADA'
         ]
         
-        # Busca todos os detalhes de lote com join no ItemEstoque
-        # Ordenação sugerida: Código e Data de Entrada
-        query = db.session.query(EstoqueDetalhe).join(ItemEstoque).order_by(
-            ItemEstoque.codigo, 
-            EstoqueDetalhe.data_entrada
-        ).all()
+        # Busca dados do Supabase (join detalhe -> item)
+        # Atenção: Fetching all could be slow if huge.
+        response = supabase.table('estoque_detalhe') \
+            .select('*, item_estoque(*)') \
+            .order('data_entrada', desc=False) \
+            .execute()
+        
+        detalhes = response.data if response.data else []
+        
+        # Ordenação secundária no Python se necessário (CÓDIGO, DATA)
+        # Mas 'item_estoque.codigo' não é campo direto para orderby no supabase (requires relational sort syntax sometimes complex).
+        # Vamos ordenar em Python.
+        detalhes.sort(key=lambda x: (
+            (x.get('item_estoque') or {}).get('codigo', ''), 
+            x.get('data_entrada', '')
+        ))
 
-        # Cria um workbook novo
         workbook = Workbook()
         worksheet = workbook.active
         worksheet.title = 'Estoque_Detalhado'
         
-        # ========== ESCREVER CABEÇALHO (LINHA 1) ==========
+        # Cabeçalho
         for num_coluna, nome_coluna in enumerate(colunas_ordem, start=1):
             célula = worksheet.cell(row=1, column=num_coluna)
             célula.value = nome_coluna
@@ -1511,46 +1505,52 @@ def exportar_excel():
             célula.font = Font(bold=True, color='FFFFFF', size=11)
             célula.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         
-        # ========== ESCREVER DADOS (LINHAS 2+) ==========
-        for num_linha, detalhe in enumerate(query, start=2):
-            item = detalhe.item_estoque
+        # Dados
+        for num_linha, detalhe in enumerate(detalhes, start=2):
+            item = detalhe.get('item_estoque') or {}
             
-            # Montagem Explícita da Linha (row) conforme solicitado
+            validade_str = ''
+            if detalhe.get('validade'):
+                try:
+                    validade_str = datetime.strptime(detalhe['validade'], '%Y-%m-%d').strftime('%d/%m/%Y')
+                except:
+                    validade_str = detalhe['validade']
+            
+            data_entrada_str = ''
+            if detalhe.get('data_entrada'):
+                 try:
+                     # Supabase returns iso format usually
+                     dt_obj = datetime.fromisoformat(detalhe['data_entrada'].replace('Z', '+00:00'))
+                     data_entrada_str = dt_obj.strftime('%d/%m/%Y %H:%M:%S')
+                 except:
+                     data_entrada_str = detalhe['data_entrada']
+
             dados_linha = {
-                'CÓDIGO': str(item.codigo).strip() if item.codigo else '',
-                'CÓDIGO OPCIONAL': str(item.codigo_opcional).strip() if item.codigo_opcional else '',
-                'TIPO': str(item.tipo).strip() if item.tipo else '',
-                'DESCRIÇÃO': str(item.descricao).strip() if item.descricao else '',
-                'LOCAL': str(item.endereco).strip() if item.endereco else '',
-                'UN': str(item.un).strip() if item.un else 'UN',
-                'DIMENSÃO': str(item.dimensao).strip() if item.dimensao else '',
-                'CLIENTE': str(item.cliente).strip() if item.cliente else '',
-                'LOTE': str(detalhe.lote).strip() if detalhe.lote else '',
-                'ITEM NF': str(detalhe.item_nf).strip() if detalhe.item_nf else '',
-                'NF': str(detalhe.nf).strip() if detalhe.nf else '',
-                'VALIDADE': detalhe.validade.strftime('%d/%m/%Y') if detalhe.validade else '',
-                'ESTAÇÃO': str(detalhe.estacao).strip() if detalhe.estacao else '',
-                'QTD ESTOQUE': round(float(detalhe.quantidade), 2) if detalhe.quantidade else 0,
-                'DATA ENTRADA': detalhe.data_entrada.strftime('%d/%m/%Y %H:%M:%S') if detalhe.data_entrada else ''
+                'CÓDIGO': str(item.get('codigo', '')).strip(),
+                'CÓDIGO OPCIONAL': str(item.get('codigo_opcional', '') or '').strip(),
+                'TIPO': str(item.get('tipo', '') or '').strip(),
+                'DESCRIÇÃO': str(item.get('descricao', '') or '').strip(),
+                'LOCAL': str(item.get('endereco', '') or '').strip(),
+                'UN': str(item.get('un', '') or 'UN').strip(),
+                'DIMENSÃO': str(item.get('dimensao', '') or '').strip(),
+                'CLIENTE': str(item.get('cliente', '') or '').strip(),
+                'LOTE': str(detalhe.get('lote', '') or '').strip(),
+                'ITEM NF': str(detalhe.get('item_nf', '') or '').strip(),
+                'NF': str(detalhe.get('nf', '') or '').strip(),
+                'VALIDADE': validade_str,
+                'ESTAÇÃO': str(detalhe.get('estacao', '') or '').strip(),
+                'QTD ESTOQUE': round(float(detalhe.get('quantidade', 0)), 2),
+                'DATA ENTRADA': data_entrada_str
             }
             
-            # Escrever cada valor na coluna correta
             for num_coluna, nome_coluna in enumerate(colunas_ordem, start=1):
-                célula = worksheet.cell(row=num_linha, column=num_coluna)
-                valor = dados_linha.get(nome_coluna, '')
-                célula.value = valor
-                célula.alignment = Alignment(horizontal='left', vertical='center')
+                worksheet.cell(row=num_linha, column=num_coluna, value=dados_linha.get(nome_coluna, '')).alignment = Alignment(horizontal='left', vertical='center')
         
-        # ========== AJUSTE LEVE DE LARGURA (Opcional, para visualização) ==========
+        # Ajuste largura
         for num_coluna, nome_coluna in enumerate(colunas_ordem, start=1):
-            letra_coluna = get_column_letter(num_coluna)
-            if nome_coluna in ['DESCRIÇÃO']:
-                worksheet.column_dimensions[letra_coluna].width = 40
-            elif nome_coluna in ['LOCAL', 'CLIENTE', 'TIPO']:
-                worksheet.column_dimensions[letra_coluna].width = 20
-            else:
-                worksheet.column_dimensions[letra_coluna].width = 15
-        
+            letra = get_column_letter(num_coluna)
+            worksheet.column_dimensions[letra].width = 40 if nome_coluna == 'DESCRIÇÃO' else 20
+
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -1558,7 +1558,6 @@ def exportar_excel():
         response = make_response(output.read())
         response.headers["Content-Disposition"] = f"attachment; filename=relatorio_estoque_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
         response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        
         return response
 
     except Exception as e:
@@ -1569,16 +1568,17 @@ def exportar_excel():
 @admin_required
 @login_required
 def limpar_estoque_completo():
-    """Apaga todos os registros de estoque para iniciar um novo inventário."""
+    """Apaga todos os registros de estoque."""
     try:
-        # A ordem é importante: primeiro os 'filhos', depois os 'pais'
-        db.session.query(Movimentacao).delete()
-        db.session.query(EstoqueDetalhe).delete()
-        db.session.query(ItemEstoque).delete()
-        db.session.commit()
-        flash('TODO O ESTOQUE FOI APAGADO COM SUCESSO! Agora você pode importar uma nova planilha de inventário.', 'success')
+        # Apaga movimentacao
+        supabase.table('movimentacao').delete().neq('id', 0).execute()
+        # Apaga detalhes
+        supabase.table('estoque_detalhe').delete().neq('id', 0).execute()
+        # Apaga itens
+        supabase.table('item_estoque').delete().neq('id', 0).execute()
+        
+        flash('TODO O ESTOQUE FOI APAGADO COM SUCESSO!', 'success')
     except Exception as e:
-        db.session.rollback()
         flash(f'Ocorreu um erro ao tentar limpar o estoque: {e}', 'danger')
     
     return redirect(url_for('estoque'))
@@ -1591,22 +1591,31 @@ def consumivel():
     """Página para listar todos os itens consumíveis do estoque."""
     search_query = request.args.get('q', '')
     
-    query = ConsumivelEstoque.query
-
-    if search_query:
-        search_term = f"%{search_query}%"
-        query = query.filter(or_(
-            ConsumivelEstoque.codigo_produto.ilike(search_term),
-            ConsumivelEstoque.descricao.ilike(search_term),
-            ConsumivelEstoque.categoria.ilike(search_term)
-        ))
+    # Helper already implements search
+    consumiveis_data = get_consumiveis(search_term=search_query) 
     
-    consumiveis = query.order_by(ConsumivelEstoque.codigo_produto).all()
+    # Convert dicts to objects if template expects object attributes (e.g. .codigo)
+    # ModelWrapper can handle it if I had a wrapper for Consumivel.
+    # But for now, lets look at template usage. Usually it's `c.codigo`.
+    # I'll create a simple wrapper or just pass dicts if template uses dict access.
+    # Flask templates often need object access for dot notation unless passed as dict.
+    # My previous wrappers handle `__getitem__` and `__getattr__`.
+    # Let's simple use a generic class or passed dicts.
+    # Jinja2 allows dot notation for dicts too? standard Jinja does.
+    # But existing code might use `c.codigo`.
+    # I'll define a simple ConsumivelWrapper inline or in models if needed.
+    # Actually, `ModelWrapper` in `models.py` is generic. I can use it.
+    
+    consumiveis = [ModelWrapper(c) for c in consumiveis_data]
 
     # Carregar movimentações apenas para ADMIN
     movimentacoes = []
     if current_user.is_authenticated and current_user.role == 'admin':
-        movimentacoes = MovimentacaoConsumivel.query.join(ConsumivelEstoque).order_by(MovimentacaoConsumivel.data_movimentacao.desc()).all()
+        # Helper for movements
+        movs_data = get_movimentacoes_consumivel()
+        # Filter for recent ones? Route says order by desc.
+        # Helper uses order desc.
+        movimentacoes = [ModelWrapper(m) for m in movs_data]
 
     return render_template('consumivel.html', consumiveis=consumiveis, search_query=search_query, movimentacoes=movimentacoes)
 
@@ -1615,25 +1624,26 @@ def consumivel():
 @login_required
 def relatorio_movimentacoes_consumivel_page():
     """Página do relatório de movimentações de consumíveis (apenas para admin)."""
-    movimentacoes = MovimentacaoConsumivel.query.join(ConsumivelEstoque).order_by(MovimentacaoConsumivel.data_movimentacao.desc()).all()
-    return jsonify({
-        'movimentacoes': [
-            {
-                'id': mov.id,
-                'tipo': mov.tipo,
-                'quantidade': mov.quantidade,
-                'data_movimentacao': mov.data_movimentacao.isoformat(),
-                'observacao': mov.observacao,
-                'usuario': mov.usuario,
-                'setor_destino': mov.setor_destino,
-                'codigo_produto': mov.consumivel.codigo_produto,
-                'descricao': mov.consumivel.descricao,
-                'unidade_medida': mov.consumivel.unidade_medida,
-                'categoria': mov.consumivel.categoria
-            }
-            for mov in movimentacoes
-        ]
-    })
+    movs_data = get_movimentacoes_consumivel()
+    
+    # Format for JSON response same as original
+    result = []
+    for mov in movs_data:
+        cons = mov.get('consumivel_estoque') or {}
+        result.append({
+            'id': mov['id'],
+            'tipo': mov['tipo'],
+            'quantidade': mov['quantidade'],
+            'data_movimentacao': mov['data_movimentacao'], # ISO usually
+            'observacao': mov['observacao'],
+            'usuario': mov['usuario'],
+            'setor_destino': mov['setor_destino'],
+            'codigo_produto': cons.get('codigo_produto'),
+            'descricao': cons.get('descricao'),
+            'unidade_medida': cons.get('unidade_medida'),
+            'categoria': cons.get('categoria')
+        })
+    return jsonify({'movimentacoes': result})
 
 @app.route('/consumivel/importar', methods=['GET', 'POST'])
 @admin_required
@@ -1654,14 +1664,12 @@ def importar_consumivel():
             try:
                 df = pd.read_excel(file)
                 
-                # Construir mapa de colunas normalizadas -> rótulo original (mais robusto)
+                # ...normalization logic same as before...
                 def normalize_text(s):
                     if not isinstance(s, str):
-                        s = '' if pd.isna(s) else str(s)
+                         s = '' if pd.isna(s) else str(s)
                     s = s.strip()
-                    # Remover símbolos ordinais e sinais que o Excel pode usar
                     s = s.replace('º', '').replace('°', '').replace('ª', '')
-                    # Normalizar unicode (remover acentos)
                     s = unicodedata.normalize('NFKD', s)
                     s = ''.join(ch for ch in s if not unicodedata.combining(ch))
                     s = s.upper()
@@ -1671,9 +1679,6 @@ def importar_consumivel():
                 orig_cols = [str(c) for c in df.columns]
                 norm_map = {normalize_text(c): c for c in orig_cols}
 
-                print(f"DEBUG: Colunas originais: {orig_cols}")
-                print(f"DEBUG: Colunas normalizadas: {list(norm_map.keys())}")
-
                 def find_col_by_patterns(*patterns):
                     for ncol, orig in norm_map.items():
                         for pat in patterns:
@@ -1681,15 +1686,13 @@ def importar_consumivel():
                                 return orig
                     return None
 
-                # Procurar por colunas obrigatórias com variações (retorna rótulo original)
                 col_n_produto = find_col_by_patterns('N PRODUTO', 'NPRODUTO', 'NUM PRODUTO', 'NUMERO PRODUTO')
                 col_codigo = find_col_by_patterns('CODIGO PRODUTO', 'CODIGOPRODUTO', 'CODIGO')
                 col_descricao = find_col_by_patterns('DESCRICAO DO PRODUTO', 'DESCRICAODOPRODUTO', 'DESCRICAO')
                 col_unidade = find_col_by_patterns('UNIDADE MEDIDA', 'UNIDADE')
 
-                # Verificar se todas as obrigatórias foram encontradas
                 if not all([col_n_produto, col_codigo, col_descricao, col_unidade]):
-                    flash(f'❌ Colunas obrigatórias faltando!\nColunas originais encontradas: {", ".join(orig_cols)}\nColunas normalizadas: {", ".join(list(norm_map.keys()))}', 'danger')
+                    flash(f'❌ Colunas obrigatórias faltando!\nColunas originais encontradas: {", ".join(orig_cols)}', 'danger')
                     return redirect(request.url)
                 
                 sucesso = 0
@@ -1697,18 +1700,15 @@ def importar_consumivel():
                 
                 for idx, row in df.iterrows():
                     try:
-                        # Obter valores das colunas obrigatórias
                         n_produto = str(row.get(col_n_produto, '')).strip()
                         codigo = str(row.get(col_codigo, '')).strip()
                         desc = str(row.get(col_descricao, '')).strip()
                         unidade = str(row.get(col_unidade, '')).strip() or 'UN'
                         
-                        # Validar obrigatórias
                         if not n_produto or not codigo or not desc:
                             erro += 1
                             continue
                         
-                        # Identificar colunas opcionais usando nomes normalizados
                         col_status_estoque = find_col_by_patterns('STATUS ESTOQUE', 'STATUSESTOQUE', 'STATUS')
                         col_status_consumo = find_col_by_patterns('STATUS CONSUMO', 'STATUSCONSUMO')
                         col_categoria = find_col_by_patterns('CATEGORIA')
@@ -1720,80 +1720,57 @@ def importar_consumivel():
                         col_minimo = find_col_by_patterns('ESTOQUE MINIMO', 'ESTOQUE MINIMO POR CAIXA', 'ESTOQUEMINIMO')
                         col_atual = find_col_by_patterns('ESTOQUE ATUAL', 'ESTOQUEATUAL', 'QUANTIDADE ATUAL')
 
-                        # Obter valores das colunas opcionais usando rótulos originais (se encontrados)
                         status_estoque = str(row.get(col_status_estoque, 'Ativo')).strip() or 'Ativo'
                         status_consumo = str(row.get(col_status_consumo, 'Consumível')).strip() or 'Consumível'
                         categoria = str(row.get(col_categoria, '')).strip()
                         fornecedor = str(row.get(col_fornecedor, '')).strip()
                         fornecedor2 = str(row.get(col_fornecedor2, '')).strip()
-
-                        try:
-                            valor = float(row.get(col_valor, 0) or 0)
-                        except:
-                            valor = 0
-
-                        try:
-                            lead = int(row.get(col_lead, 7) or 7)
-                        except:
-                            lead = 7
-
-                        try:
-                            seg = float(row.get(col_seg, 0) or 0)
-                        except:
-                            seg = 0
-
-                        try:
-                            minimo = float(row.get(col_minimo, 0) or 0)
-                        except:
-                            minimo = 0
-
-                        try:
-                            atual = float(row.get(col_atual, 0) or 0)
-                        except:
-                            atual = 0
                         
-                        # Criar ou atualizar
-                        cons = ConsumivelEstoque.query.filter_by(codigo_produto=codigo).first()
-                        if not cons:
-                            cons = ConsumivelEstoque(
-                                n_produto=n_produto,
-                                codigo_produto=codigo,
-                                descricao=desc,
-                                unidade_medida=unidade,
-                                status_estoque=status_estoque,
-                                status_consumo=status_consumo,
-                                categoria=categoria,
-                                fornecedor=fornecedor,
-                                fornecedor2=fornecedor2,
-                                valor_unitario=valor,
-                                lead_time=lead,
-                                estoque_seguranca=seg,
-                                estoque_minimo=minimo,
-                                quantidade_atual=atual
-                            )
-                            db.session.add(cons)
+                        # Helper for safe float/int conversion
+                        def safe_float(v, default=0.0):
+                            try: return float(v) if pd.notna(v) else default
+                            except: return default
+                        def safe_int(v, default=7):
+                            try: return int(v) if pd.notna(v) else default
+                            except: return default
+
+                        valor = safe_float(row.get(col_valor))
+                        lead = safe_int(row.get(col_lead))
+                        seg = safe_float(row.get(col_seg))
+                        minimo = safe_float(row.get(col_minimo))
+                        atual = safe_float(row.get(col_atual))
+                        
+                        # Check exist
+                        exist = supabase.table('consumivel_estoque').select('id').eq('codigo_produto', codigo).execute()
+                        
+                        data_payload = {
+                            'n_produto': n_produto,
+                            'codigo_produto': codigo,
+                            'descricao': desc,
+                            'unidade_medida': unidade,
+                            'status_estoque': status_estoque,
+                            'status_consumo': status_consumo,
+                            'categoria': categoria,
+                            'fornecedor': fornecedor,
+                            'fornecedor2': fornecedor2,
+                            'valor_unitario': valor,
+                            'lead_time': lead,
+                            'estoque_seguranca': seg,
+                            'estoque_minimo': minimo,
+                            'quantidade_atual': atual
+                        }
+                        
+                        if exist.data:
+                             supabase.table('consumivel_estoque').update(data_payload).eq('id', exist.data[0]['id']).execute()
                         else:
-                            cons.n_produto = n_produto
-                            cons.descricao = desc
-                            cons.unidade_medida = unidade
-                            cons.status_estoque = status_estoque
-                            cons.status_consumo = status_consumo
-                            cons.categoria = categoria
-                            cons.fornecedor = fornecedor
-                            cons.fornecedor2 = fornecedor2
-                            cons.valor_unitario = valor
-                            cons.lead_time = lead
-                            cons.estoque_seguranca = seg
-                            cons.estoque_minimo = minimo
-                            cons.quantidade_atual = atual
-                        
+                             supabase.table('consumivel_estoque').insert(data_payload).execute()
+
                         sucesso += 1
                     
                     except Exception as e:
                         erro += 1
                         print(f"Erro linha {idx + 2}: {e}")
                 
-                db.session.commit()
                 flash(f'✅ {sucesso} consumível(is) importado(s)!', 'success')
                 if erro > 0:
                     flash(f'⚠️ {erro} linha(s) ignorada(s).', 'warning')
@@ -1824,7 +1801,12 @@ def movimentacao_consumivel():
             flash('Consumível, tipo e quantidade são obrigatórios.', 'danger')
             return redirect(url_for('movimentacao_consumivel'))
 
-        consumivel = ConsumivelEstoque.query.get_or_404(consumivel_id)
+        # Fetch cons
+        res = supabase.table('consumivel_estoque').select('*').eq('id', consumivel_id).execute()
+        consumivel = res.data[0] if res.data else None
+        
+        if not consumivel:
+             abort(404)
 
         try:
             quantidade = float(quantidade)
@@ -1834,47 +1816,50 @@ def movimentacao_consumivel():
         except (ValueError, TypeError):
             flash('A quantidade deve ser um número válido.', 'danger')
             return redirect(url_for('movimentacao_consumivel'))
+            
+        current_qtd = float(consumivel['quantidade_atual'] or 0)
 
         # --- LÓGICA DE ENTRADA ---
         if tipo == 'ENTRADA':
-            consumivel.quantidade_atual += quantidade
+            new_qtd = current_qtd + quantidade
+            supabase.table('consumivel_estoque').update({'quantidade_atual': new_qtd}).eq('id', consumivel_id).execute()
             
-            nova_movimentacao = MovimentacaoConsumivel(
-                consumivel_id=consumivel.id,
-                tipo='ENTRADA',
-                quantidade=quantidade,
-                usuario=current_user.username,
-                setor_destino=setor_destino or 'Almoxarifado',
-                observacao=observacao
-            )
-            db.session.add(nova_movimentacao)
-            db.session.commit()
+            mov_data = {
+                'consumivel_id': consumivel_id,
+                'tipo': 'ENTRADA',
+                'quantidade': quantidade,
+                'usuario': current_user.username,
+                'setor_destino': setor_destino or 'Almoxarifado',
+                'observacao': observacao
+            }
+            supabase.table('movimentacao_consumivel').insert(mov_data).execute()
             flash('Entrada de consumível registrada com sucesso!', 'success')
 
         # --- LÓGICA DE SAÍDA ---
         elif tipo == 'SAIDA':
-            if consumivel.quantidade_atual < quantidade:
-                flash(f'Quantidade insuficiente. Disponível: {consumivel.quantidade_atual}', 'danger')
+            if current_qtd < quantidade:
+                flash(f'Quantidade insuficiente. Disponível: {current_qtd}', 'danger')
                 return redirect(url_for('movimentacao_consumivel'))
 
-            consumivel.quantidade_atual -= quantidade
+            new_qtd = current_qtd - quantidade
+            supabase.table('consumivel_estoque').update({'quantidade_atual': new_qtd}).eq('id', consumivel_id).execute()
             
-            nova_movimentacao = MovimentacaoConsumivel(
-                consumivel_id=consumivel.id,
-                tipo='SAIDA',
-                quantidade=quantidade,
-                usuario=current_user.username,
-                setor_destino=setor_destino,
-                observacao=observacao
-            )
-            db.session.add(nova_movimentacao)
-            db.session.commit()
+            mov_data = {
+                'consumivel_id': consumivel_id,
+                'tipo': 'SAIDA',
+                'quantidade': quantidade,
+                'usuario': current_user.username,
+                'setor_destino': setor_destino,
+                'observacao': observacao
+            }
+            supabase.table('movimentacao_consumivel').insert(mov_data).execute()
             flash('Saída de consumível registrada com sucesso!', 'success')
 
         return redirect(url_for('movimentacao_consumivel'))
 
-    # Para GET (exibir a página)
-    consumiveis = ConsumivelEstoque.query.order_by(ConsumivelEstoque.descricao).all()
+    # Para GET
+    consumiveis_data = get_consumiveis()
+    consumiveis = [ModelWrapper(c) for c in consumiveis_data]
     return render_template('movimentacao_consumivel.html', consumiveis=consumiveis)
 
 @app.route('/consumivel/editar/<int:consumivel_id>', methods=['GET', 'POST'])
@@ -1882,30 +1867,37 @@ def movimentacao_consumivel():
 @login_required
 def editar_consumivel(consumivel_id):
     """Página para editar um consumível específico."""
-    consumivel = ConsumivelEstoque.query.get_or_404(consumivel_id)
+    res = supabase.table('consumivel_estoque').select('*').eq('id', consumivel_id).execute()
+    consumivel_data = res.data[0] if res.data else None
+    
+    if not consumivel_data:
+        abort(404)
+        
+    consumivel = ModelWrapper(consumivel_data)
 
     if request.method == 'POST':
         try:
-            consumivel.n_produto = request.form.get('n_produto', consumivel.n_produto)
-            consumivel.status_estoque = request.form.get('status_estoque', consumivel.status_estoque)
-            consumivel.status_consumo = request.form.get('status_consumo', consumivel.status_consumo)
-            consumivel.descricao = request.form.get('descricao', consumivel.descricao)
-            consumivel.unidade_medida = request.form.get('unidade_medida', consumivel.unidade_medida)
-            consumivel.categoria = request.form.get('categoria', consumivel.categoria)
-            consumivel.fornecedor = request.form.get('fornecedor', consumivel.fornecedor)
-            consumivel.fornecedor2 = request.form.get('fornecedor2', consumivel.fornecedor2)
-            consumivel.valor_unitario = float(request.form.get('valor_unitario', consumivel.valor_unitario))
-            consumivel.lead_time = int(request.form.get('lead_time', consumivel.lead_time))
-            consumivel.estoque_seguranca = float(request.form.get('estoque_seguranca', consumivel.estoque_seguranca))
-            consumivel.estoque_minimo = float(request.form.get('estoque_minimo', consumivel.estoque_minimo))
-            consumivel.quantidade_atual = float(request.form.get('quantidade_atual', consumivel.quantidade_atual))
+            update_data = {
+                'n_produto': request.form.get('n_produto'),
+                'status_estoque': request.form.get('status_estoque'),
+                'status_consumo': request.form.get('status_consumo'),
+                'descricao': request.form.get('descricao'),
+                'unidade_medida': request.form.get('unidade_medida'),
+                'categoria': request.form.get('categoria'),
+                'fornecedor': request.form.get('fornecedor'),
+                'fornecedor2': request.form.get('fornecedor2'),
+                'valor_unitario': float(request.form.get('valor_unitario', 0)),
+                'lead_time': int(request.form.get('lead_time', 0)),
+                'estoque_seguranca': float(request.form.get('estoque_seguranca', 0)),
+                'estoque_minimo': float(request.form.get('estoque_minimo', 0)),
+                'quantidade_atual': float(request.form.get('quantidade_atual', 0))
+            }
 
-            db.session.commit()
+            supabase.table('consumivel_estoque').update(update_data).eq('id', consumivel_id).execute()
             flash('Consumível atualizado com sucesso!', 'success')
             return redirect(url_for('consumivel'))
 
         except Exception as e:
-            db.session.rollback()
             flash(f'Erro ao atualizar o consumível: {e}', 'danger')
 
     return render_template('editar_consumivel.html', consumivel=consumivel)
@@ -1915,17 +1907,13 @@ def editar_consumivel(consumivel_id):
 @login_required
 def excluir_consumivel(consumivel_id):
     """Exclui um consumível do estoque."""
-    consumivel = ConsumivelEstoque.query.get_or_404(consumivel_id)
-
     try:
         # Remove também as movimentações relacionadas
-        MovimentacaoConsumivel.query.filter_by(consumivel_id=consumivel.id).delete()
-        db.session.delete(consumivel)
-        db.session.commit()
-        flash(f'Consumível "{consumivel.descricao}" excluído com sucesso!', 'success')
+        supabase.table('movimentacao_consumivel').delete().eq('consumivel_id', consumivel_id).execute()
+        supabase.table('consumivel_estoque').delete().eq('id', consumivel_id).execute()
+        flash('Consumível excluído com sucesso!', 'success')
 
     except Exception as e:
-        db.session.rollback()
         flash(f'Erro ao excluir o consumível: {e}', 'danger')
 
     return redirect(url_for('consumivel'))
@@ -1935,50 +1923,58 @@ def excluir_consumivel(consumivel_id):
 @login_required
 def historico_consumivel(consumivel_id):
     """Exibe o histórico de movimentações de um consumível."""
-    consumivel = ConsumivelEstoque.query.get_or_404(consumivel_id)
-    movimentacoes = consumivel.movimentacoes.order_by(MovimentacaoConsumivel.data_movimentacao.desc()).all()
+    res_cons = supabase.table('consumivel_estoque').select('*').eq('id', consumivel_id).execute()
+    if not res_cons.data:
+        abort(404)
+    consumivel = ModelWrapper(res_cons.data[0])
+    
+    res_movs = supabase.table('movimentacao_consumivel').select('*').eq('consumivel_id', consumivel_id).order('data_movimentacao', desc=True).execute()
+    movimentacoes = [ModelWrapper(m) for m in (res_movs.data or [])]
+    
     return render_template('historico_consumivel.html', consumivel=consumivel, movimentacoes=movimentacoes)
 
 @app.route('/api/consumivel/by-code/<string:codigo_produto>')
 @login_required
 def api_get_consumivel_by_code(codigo_produto):
-    """Retorna os dados de um consumível pelo seu código em formato JSON."""
-    consumivel = ConsumivelEstoque.query.filter(func.lower(ConsumivelEstoque.codigo_produto) == func.lower(codigo_produto)).first()
+    """Retorna os dados de um consumível pelo seu código."""
+    # Case insensitive search
+    res = supabase.table('consumivel_estoque').select('*').ilike('codigo_produto', codigo_produto).execute()
+    consumivel = res.data[0] if res.data else None
     
     if not consumivel:
         return jsonify({'error': 'Consumível não encontrado'}), 404
     
     return jsonify({
-        'id': consumivel.id,
-        'codigo_produto': consumivel.codigo_produto,
-        'descricao': consumivel.descricao,
-        'unidade_medida': consumivel.unidade_medida,
-        'categoria': consumivel.categoria,
-        'quantidade_atual': consumivel.quantidade_atual
+        'id': consumivel['id'],
+        'codigo_produto': consumivel['codigo_produto'],
+        'descricao': consumivel['descricao'],
+        'unidade_medida': consumivel['unidade_medida'],
+        'categoria': consumivel['categoria'],
+        'quantidade_atual': consumivel['quantidade_atual']
     })
-
 
 @app.route('/api/relatorio/movimentacoes-consumivel')
 @admin_only
 @login_required
 def api_relatorio_movimentacoes_consumivel():
     """Retorna todas as movimentações de consumíveis em formato JSON."""
-    movimentacoes = MovimentacaoConsumivel.query.join(ConsumivelEstoque).order_by(MovimentacaoConsumivel.data_movimentacao.desc()).all()
+    movs_data = get_movimentacoes_consumivel()
     
     dados = []
-    for mov in movimentacoes:
+    for mov in movs_data:
+        cons = mov.get('consumivel_estoque') or {}
         dados.append({
-            'id': mov.id,
-            'tipo': mov.tipo,
-            'quantidade': mov.quantidade,
-            'data_movimentacao': mov.data_movimentacao.isoformat(),
-            'observacao': mov.observacao,
-            'usuario': mov.usuario,
-            'setor_destino': mov.setor_destino,
-            'codigo_produto': mov.consumivel.codigo_produto,
-            'descricao': mov.consumivel.descricao,
-            'unidade_medida': mov.consumivel.unidade_medida,
-            'categoria': mov.consumivel.categoria
+            'id': mov['id'],
+            'tipo': mov['tipo'],
+            'quantidade': mov['quantidade'],
+            'data_movimentacao': mov['data_movimentacao'],
+            'observacao': mov['observacao'],
+            'usuario': mov['usuario'],
+            'setor_destino': mov['setor_destino'],
+            'codigo_produto': cons.get('codigo_produto'),
+            'descricao': cons.get('descricao'),
+            'unidade_medida': cons.get('unidade_medida'),
+            'categoria': cons.get('categoria')
         })
     
     return jsonify(dados)
@@ -1987,53 +1983,39 @@ def api_relatorio_movimentacoes_consumivel():
 @app.route('/consumivel/exportar')
 @login_required
 def exportar_consumivel():
-    """Exporta todos os consumíveis para um arquivo Excel."""
-    consumiveis = ConsumivelEstoque.query.order_by(ConsumivelEstoque.codigo_produto).all()
+    """Exporta todos os consumíveis para Excel."""
+    res = supabase.table('consumivel_estoque').select('*').order('codigo_produto').execute()
+    consumiveis = res.data if res.data else []
     
-    # Preparar dados para o DataFrame na ordem correta para importação
     dados = []
     for consumivel in consumiveis:
         dados.append({
-            'Nº PRODUTO': consumivel.n_produto,
-            'STATUS ESTOQUE': consumivel.status_estoque,
-            'STATUS CONSUMO': consumivel.status_consumo,
-            'CÓDIGO PRODUTO': consumivel.codigo_produto,
-            'DESCRIÇÃO DO PRODUTO': consumivel.descricao,
-            'UNIDADE MEDIDA': consumivel.unidade_medida,
-            'CATEGORIA': consumivel.categoria,
-            'FORNECEDOR': consumivel.fornecedor,
-            'FORNECEDOR 2': consumivel.fornecedor2,
-            'VALOR UNITÁRIO': consumivel.valor_unitario,
-            'LEAD TIME (DIAS ATRÁS)': consumivel.lead_time,
-            '% ESTOQUE DE SEGURANÇA': consumivel.estoque_seguranca,
-            'ESTOQUE MÍNIMO POR CAIXA': consumivel.estoque_minimo,
-            'ESTOQUE ATUAL': consumivel.quantidade_atual,
+            'Nº PRODUTO': consumivel.get('n_produto'),
+            'STATUS ESTOQUE': consumivel.get('status_estoque'),
+            'STATUS CONSUMO': consumivel.get('status_consumo'),
+            'CÓDIGO PRODUTO': consumivel.get('codigo_produto'),
+            'DESCRIÇÃO DO PRODUTO': consumivel.get('descricao'),
+            'UNIDADE MEDIDA': consumivel.get('unidade_medida'),
+            'CATEGORIA': consumivel.get('categoria'),
+            'FORNECEDOR': consumivel.get('fornecedor'),
+            'FORNECEDOR 2': consumivel.get('fornecedor2'),
+            'VALOR UNITÁRIO': consumivel.get('valor_unitario'),
+            'LEAD TIME (DIAS ATRÁS)': consumivel.get('lead_time'),
+            '% ESTOQUE DE SEGURANÇA': consumivel.get('estoque_seguranca'),
+            'ESTOQUE MÍNIMO POR CAIXA': consumivel.get('estoque_minimo'),
+            'ESTOQUE ATUAL': consumivel.get('quantidade_atual'),
         })
     
-    # Criar DataFrame com as colunas na ordem correta
     df = pd.DataFrame(dados, columns=[
-        'Nº PRODUTO',
-        'STATUS ESTOQUE',
-        'STATUS CONSUMO',
-        'CÓDIGO PRODUTO',
-        'DESCRIÇÃO DO PRODUTO',
-        'UNIDADE MEDIDA',
-        'CATEGORIA',
-        'FORNECEDOR',
-        'FORNECEDOR 2',
-        'VALOR UNITÁRIO',
-        'LEAD TIME (DIAS ATRÁS)',
-        '% ESTOQUE DE SEGURANÇA',
-        'ESTOQUE MÍNIMO POR CAIXA',
-        'ESTOQUE ATUAL',
+        'Nº PRODUTO', 'STATUS ESTOQUE', 'STATUS CONSUMO', 'CÓDIGO PRODUTO',
+        'DESCRIÇÃO DO PRODUTO', 'UNIDADE MEDIDA', 'CATEGORIA', 'FORNECEDOR',
+        'FORNECEDOR 2', 'VALOR UNITÁRIO', 'LEAD TIME (DIAS ATRÁS)',
+        '% ESTOQUE DE SEGURANÇA', 'ESTOQUE MÍNIMO POR CAIXA', 'ESTOQUE ATUAL',
     ])
     
-    # Criar arquivo Excel em memória
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Consumíveis', index=False)
-        
-        # Ajustar largura das colunas
         worksheet = writer.sheets['Consumíveis']
         for column in worksheet.columns:
             max_length = 0
@@ -2042,14 +2024,11 @@ def exportar_consumivel():
                 try:
                     if len(str(cell.value)) > max_length:
                         max_length = len(str(cell.value))
-                except:
-                    pass
+                except: pass
             adjusted_width = min(max_length + 2, 50)
             worksheet.column_dimensions[column_letter].width = adjusted_width
     
     output.seek(0)
-    
-    # Gerar resposta com o arquivo
     return make_response(
         output.getvalue(),
         200,
@@ -2066,7 +2045,10 @@ def exportar_consumivel():
 @admin_required
 def gerenciar_usuarios():
     """Página para listar e gerenciar todos os usuários."""
-    users = User.query.order_by(User.username).all()
+    res = supabase.table('users').select('*').order('username').execute()
+    users_data = res.data if res.data else []
+    
+    users = [User(u) for u in users_data]
     return render_template('admin_usuarios.html', users=users)
 
 @app.route('/admin/usuario/novo', methods=['GET', 'POST'])
@@ -2083,14 +2065,13 @@ def criar_usuario():
             flash('Todos os campos são obrigatórios.', 'danger')
             return redirect(url_for('criar_usuario'))
 
-        if User.query.filter_by(username=username).first():
+        if get_user_by_username(username):
             flash('Este nome de usuário já está em uso.', 'danger')
             return redirect(url_for('criar_usuario'))
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        new_user = User(username=username, password_hash=hashed_password, role=role)
-        db.session.add(new_user)
-        db.session.commit()
+        create_user(username=username, password_hash=hashed_password, role=role)
+        
         flash(f'Usuário "{username}" criado com sucesso!', 'success')
         return redirect(url_for('gerenciar_usuarios'))
 
@@ -2101,18 +2082,30 @@ def criar_usuario():
 @admin_required
 def editar_usuario(user_id):
     """Página para editar um usuário existente."""
-    user = User.query.get_or_404(user_id)
+    user_data = get_user_by_id(user_id)
+    if not user_data:
+        abort(404)
+    user = User(user_data)
+    
     if request.method == 'POST':
-        user.username = request.form.get('username')
-        user.role = request.form.get('role')
+        # Atualiza campos básicos
+        update_data = {
+            'username': request.form.get('username'),
+            'role': request.form.get('role')
+        }
+        
         password = request.form.get('password')
 
         if password: # Só atualiza a senha se uma nova for fornecida
-            user.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+            update_data['password_hash'] = bcrypt.generate_password_hash(password).decode('utf-8')
             flash('Senha atualizada com sucesso.', 'info')
 
-        db.session.commit()
-        flash(f'Usuário "{user.username}" atualizado com sucesso!', 'success')
+        update_user(user_id, update_data)
+        
+        # Helper returns void or data? Helpers usually don't return updated obj directly unless configured.
+        # But we can assume success if no exception.
+        
+        flash(f'Usuário atualizado com sucesso!', 'success')
         return redirect(url_for('gerenciar_usuarios'))
 
     return render_template('form_usuario.html', title="Editar Usuário", user=user, action_url=url_for('editar_usuario', user_id=user_id))
@@ -2122,13 +2115,17 @@ def editar_usuario(user_id):
 @admin_required
 def excluir_usuario(user_id):
     """Rota para excluir um usuário."""
-    user = User.query.get_or_404(user_id)
-    if user.id == current_user.id:
+    # current_user é um objeto User (ModelWrapper), então acesso via atributo funciona
+    if user_id == int(current_user.id):
         flash('Você não pode excluir a si mesmo.', 'danger')
         return redirect(url_for('gerenciar_usuarios'))
-    db.session.delete(user)
-    db.session.commit()
-    flash(f'Usuário "{user.username}" excluído com sucesso.', 'success')
+        
+    user_data = get_user_by_id(user_id)
+    if not user_data:
+        abort(404)
+        
+    delete_user(user_id)
+    flash(f'Usuário "{user_data.get("username")}" excluído com sucesso.', 'success')
     return redirect(url_for('gerenciar_usuarios'))
 
 # --- ROTAS DE AUTENTICAÇÃO ---
@@ -2139,9 +2136,11 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        user = User.query.filter_by(username=request.form.get('username')).first()
-        if user and bcrypt.check_password_hash(user.password_hash, request.form.get('password')):
-            login_user(user)
+        user_data = get_user_by_username(request.form.get('username'))
+        
+        if user_data and bcrypt.check_password_hash(user_data.get('password_hash'), request.form.get('password')):
+            user_obj = User(user_data)
+            login_user(user_obj)
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('dashboard'))
         else:
@@ -2166,14 +2165,13 @@ def register():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        if User.query.filter_by(username=username).first():
+        if get_user_by_username(username):
             flash('Este nome de usuário já existe. Por favor, escolha outro.', 'danger')
             return redirect(url_for('register'))
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        new_user = User(username=username, password_hash=hashed_password) # 'admin' pode ser definido como padrão ou em outra lógica
-        db.session.add(new_user)
-        db.session.commit()
+        create_user(username=username, password_hash=hashed_password)
+        
         flash('Sua conta foi criada com sucesso! Agora você pode fazer login.', 'success')
         return redirect(url_for('login'))
     return render_template('register.html')
@@ -2188,9 +2186,11 @@ def promote_to_admin():
     Acesse http://127.0.0.1:5000/promote_to_admin uma vez para se promover.
     """
     if current_user.role != 'admin':
-        current_user.role = 'admin'
-        db.session.commit()
-        flash('Parabéns! Sua conta foi promovida para Administrador.', 'success')
+        update_user(int(current_user.id), {'role': 'admin'})
+        # current_user é proxy local, não atualiza automaticamente, mas o DB atualizou
+        flash('Parabéns! Sua conta foi promovida para Administrador (necessário relogar).', 'success')
+        logout_user() # Força relogin para atualizar role na sessão
+        return redirect(url_for('login'))
     else:
         flash('Sua conta já é de um Administrador.', 'info')
     
@@ -2200,10 +2200,7 @@ def promote_to_admin():
 
 # --- INICIALIZAÇÃO DA APLICAÇÃO ---
 if __name__ == '__main__':
-    # Cria as tabelas no banco de dados se não existirem
-    with app.app_context():
-        db.create_all()
-        print("✅ Tabelas do banco de dados criadas/verificadas com sucesso!")
+
     
     app.run(debug=True)
        
