@@ -21,13 +21,21 @@ import unicodedata
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
 
+# Carregar variáveis de ambiente
+from dotenv import load_dotenv
+load_dotenv('.env.supabase')  # Carrega configurações do arquivo .env.supabase
+
 def configure_app(app_instance):
     """Configura a aplicação Flask."""
     # Chave secreta para sessões e mensagens flash
-    app_instance.config['SECRET_KEY'] = 'sua-chave-secreta-super-segura' 
+    app_instance.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'sua-chave-secreta-super-segura')
     
-    # Configuração do banco de dados SQLite
-    app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+    # Configuração do banco de dados PostgreSQL (Supabase)
+    database_url = os.getenv('DATABASE_URL')
+    if database_url and database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    
+    app_instance.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///' + os.path.join(basedir, 'database.db')
     app_instance.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Inicializa as extensões com a aplicação
@@ -45,7 +53,6 @@ login_manager.login_message = "Por favor, faça login para acessar esta página.
 login_manager.login_message_category = 'info'
 
 configure_app(app)
-# A linha 'socketio = SocketIO(app)' foi movida para cima e ajustada.
 
 # --- FUNÇÃO PARA CRIAR O BANCO DE DADOS ---
 def criar_banco_de_dados():
