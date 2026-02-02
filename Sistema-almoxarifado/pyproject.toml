@@ -1,0 +1,10 @@
+[project]
+name = "sistema-almoxarifado"
+version = "0.1.0"
+dependencies = [
+    "flask",
+]
+
+[tool.vercel]
+# This section can sometimes help Vercel define the entrypoint
+entrypoint = "app.py"
