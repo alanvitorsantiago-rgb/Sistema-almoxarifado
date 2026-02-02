@@ -44,6 +44,18 @@
                     <input type="text" class="form-control" id="cliente" name="cliente">
                 </div>
                 <div class="col-md-4">
+                    <label for="estoque_minimo" class="form-label">Estoque Mínimo</label>
+                    <input type="number" class="form-control" id="estoque_minimo" name="estoque_minimo" value="5" step="0.01" min="0">
+                </div>
+                <div class="col-md-4">
+                    <label for="estoque_ideal_compra" class="form-label">Quantidade Ideal para Comprar <small class="text-muted">(opcional)</small></label>
+                    <input type="number" class="form-control" id="estoque_ideal_compra" name="estoque_ideal_compra" step="0.01" min="0" placeholder="Ex: 100">
+                </div>
+                <div class="col-md-4">
+                    <label for="tempo_reposicao" class="form-label">Tempo de Reposição (dias)</label>
+                    <input type="number" class="form-control" id="tempo_reposicao" name="tempo_reposicao" value="7" min="1">
+                </div>
+                <div class="col-md-4">
                     <label for="lote" class="form-label">LOTE</label>
                     <input type="text" class="form-control" id="lote" name="lote">
                 </div>
@@ -58,10 +70,6 @@
                 <div class="col-md-3">
                     <label for="validade" class="form-label">VALIDADE</label>
                     <input type="date" class="form-control" id="validade" name="validade">
-                </div>
-                <div class="col-md-3">
-                    <label for="estacao" class="form-label">ESTAÇÃO</label>
-                    <input type="text" class="form-control" id="estacao" name="estacao">
                 </div>
                 <div class="col-md-3">
                     <label for="qtd_estoque" class="form-label">QTD ESTOQUE*</label>

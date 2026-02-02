@@ -23,7 +23,6 @@
                         <th>Lote</th>
                         <th>Item NF</th>
                         <th>Data e Hora</th>
-                        <th>Observação</th>
                         <th>Usuário</th>
                     </tr>
                 </thead>
@@ -33,10 +32,6 @@
                         <td>
                             {% if mov.tipo == 'ENTRADA' %}
                                 <span class="badge bg-success">ENTRADA</span>
-                            {% elif mov.tipo == 'SAIDA' %}
-                                <span class="badge bg-danger">SAÍDA</span>
-                            {% elif mov.tipo == 'AJUSTE' %}
-                                <span class="badge bg-info">AJUSTE</span>
                             {% else %}
                                 <span class="badge bg-danger">SAÍDA</span>
                             {% endif %}
@@ -44,13 +39,12 @@
                         <td class="fw-bold">{{ mov.quantidade }}</td>
                         <td>{{ mov.lote or 'N/A' }}</td>
                         <td>{{ mov.item_nf or 'N/A' }}</td>
-                        <td>{{ mov.data_movimentacao.strftime('%d/%m/%Y %H:%M:%S') if mov.data_movimentacao else 'N/A' }}</td>
-                        <td>{{ mov.observacao or '' }}</td>
+                        <td>{{ mov.data_movimentacao.strftime('%d/%m/%Y %H:%M') }}</td>
                         <td>{{ mov.usuario or 'Sistema' }}</td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center">Nenhuma movimentação registrada para este item.</td>
+                        <td colspan="6" class="text-center">Nenhuma movimentação registrada para este item.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

@@ -1,93 +1,134 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 
-{% block title %}Painel de Controle - Almoxarifado{% endblock %}
+{% block title %}Painel de Comando - Almoxarifado{% endblock %}
 
 {% block head_extra %}
 <style>
-    /* O estilo do fundo foi movido para base.html para ser aplicado globalmente. */
-
-    /* Estilos para os cards de KPI */
-    .kpi-card .card-body {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+    /* --- FUNDO E LAYOUT GERAL --- */
+    body {
+        background-color: #0a0f1a; /* Azul petróleo muito escuro */
+        background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+        background-size: 20px 20px;
     }
-    .kpi-card .kpi-icon { font-size: 3rem; opacity: 0.3; }
-    .kpi-card .kpi-value { font-size: 2.5rem; font-weight: 700; }
-    .kpi-card .card-title { font-size: 1rem; font-weight: 500; margin-bottom: 0.25rem; }
 
-    /* Efeito de hover nos cards */
+    /* --- ESTILO DOS CARDS "GLASSMORPHISM NEON-TECH" --- */
     .card {
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        background: rgba(10, 15, 35, 0.5); /* Fundo de vidro escuro */
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(0, 255, 255, 0.15);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
     }
     .card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
+        border-color: rgba(0, 255, 255, 0.4);
+        box-shadow: 0 0 25px rgba(0, 255, 255, 0.2);
+    }
+    .card-header {
+        background: transparent;
+        border-bottom: 1px solid rgba(0, 255, 255, 0.15);
+        font-weight: 600;
+        color: #c0d0ff; /* Azul claro para títulos */
     }
 
-    /* Timeline de Atividade */
-    .timeline { list-style: none; padding: 0; position: relative; }
-    .timeline:before { content: ''; position: absolute; top: 0; bottom: 0; left: 20px; width: 2px; background: var(--card-border-color); }
-    .timeline-item { margin-bottom: 20px; position: relative; padding-left: 50px; }
-    .timeline-icon { position: absolute; left: 10px; top: 0; width: 22px; height: 22px; border-radius: 50%; text-align: center; line-height: 22px; font-size: 12px; }
+    /* --- ESTILO DOS KPIs --- */
+    .kpi-card .card-body {
+        position: relative;
+        overflow: hidden;
+    }
+    .kpi-value {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #fff;
+    }
+    .kpi-title {
+        font-size: 0.9rem;
+        color: #8899bb; /* Azul acinzentado */
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .kpi-icon {
+        position: absolute;
+        right: -20px;
+        bottom: -30px;
+        font-size: 6rem;
+        color: rgba(0, 255, 255, 0.05);
+        transition: transform 0.5s ease;
+    }
+    .kpi-card:hover .kpi-icon {
+        transform: scale(1.2) rotate(-10deg);
+    }
 
-    /* Animação de Fade-in */
-    .fade-in-section { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease-out, transform 0.6s ease-out; }
-    .fade-in-section.is-visible { opacity: 1; transform: translateY(0); }
+    /* --- ESTILO DOS GRÁFICOS --- */
+    .chart-container {
+        position: relative;
+        height: 350px; /* Altura padrão para gráficos */
+    }
+
+    /* --- ANIMAÇÕES DE ENTRADA --- */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in-up {
+        animation: fadeInUp 0.6s ease-out forwards;
+        opacity: 0; /* Começa invisível */
+    }
+    /* Atraso para cada card */
+    .kpi-card:nth-child(1) { animation-delay: 0.1s; }
+    .kpi-card:nth-child(2) { animation-delay: 0.2s; }
+    .kpi-card:nth-child(3) { animation-delay: 0.3s; }
+    .kpi-card:nth-child(4) { animation-delay: 0.4s; }
+    .main-chart-card { animation-delay: 0.5s; }
+    .sub-chart-card { animation-delay: 0.6s; }
+    .suggestions-card { animation-delay: 0.7s; }
+    .details-card { animation-delay: 0.8s; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="mb-0">Painel de Controle</h3>
-    <div class="btn-group">
-        <a href="{{ url_for('movimentacao') }}" class="btn btn-success"><i class="fas fa-exchange-alt"></i> Registrar Movimentação</a>
-        <a href="{{ url_for('estoque') }}" class="btn btn-primary"><i class="fas fa-boxes"></i> Ver Estoque Completo</a>
-        <a href="{{ url_for('relatorio_etapas') }}" class="btn btn-info"><i class="fas fa-chart-pie"></i> Resumo por Etapa</a>
-    </div>
-</div>
-
-<!-- Linha de KPIs -->
-<div class="row g-3 mb-4 fade-in-section">
-    <div class="col-xl-3 col-md-6">
-        <div class="card kpi-card">
+<!-- === ZONA DE STATUS IMEDIATO (KPIs) === -->
+<div class="row g-4 mb-4">
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
             <div class="card-body">
                 <div>
-                    <h5 class="card-title text-muted">ITENS DISTINTOS</h5>
-                    <span class="kpi-value">{{ total_items_distintos }}</span>
+                    <div class="kpi-title">Itens Distintos</div>
+                    <div class="kpi-value" id="kpi-itens-distintos">{{ total_items_distintos }}</div>
                 </div>
                 <i class="fas fa-fingerprint kpi-icon"></i>
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card kpi-card">
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
             <div class="card-body">
                 <div>
-                    <h5 class="card-title text-muted">TOTAL DE UNIDADES</h5>
-                    <span class="kpi-value">{{ "%.0f"|format(total_unidades) }}</span>
+                    <div class="kpi-title">Total de Unidades</div>
+                    <div class="kpi-value" id="kpi-total-unidades">{{ "%.0f"|format(total_unidades) }}</div>
                 </div>
                 <i class="fas fa-cubes kpi-icon"></i>
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card kpi-card">
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
             <div class="card-body">
                 <div>
-                    <h5 class="card-title text-muted">ITENS ZERADOS</h5>
-                    <span class="kpi-value text-warning">{{ itens_zerados }}</span>
+                    <div class="kpi-title">Itens Zerados</div>
+                    <div class="kpi-value" id="kpi-itens-zerados" style="color: var(--warning-neon);">{{ itens_zerados }}</div>
                 </div>
                 <i class="fas fa-ban kpi-icon"></i>
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card kpi-card">
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
             <div class="card-body">
                 <div>
-                    <h5 class="card-title text-muted">LOTES CRÍTICOS</h5>
-                    <span class="kpi-value text-danger">{{ critical_lotes|length }}</span>
+                    <div class="kpi-title">Lotes Críticos</div>
+                    <div class="kpi-value" id="kpi-lotes-criticos" style="color: var(--danger-neon);">{{ critical_lotes|length }}</div>
                 </div>
                 <i class="fas fa-exclamation-triangle kpi-icon"></i>
             </div>
@@ -95,263 +136,457 @@
     </div>
 </div>
 
-<!-- Alertas de Validade -->
-<div class="row g-3 mb-4 fade-in-section">
-    <!-- Itens Vencendo Hoje -->
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="fas fa-calendar-times me-2"></i><strong>Itens Vencendo Hoje</strong>
-            </div>
-            <div class="card-body" style="max-height: 250px; overflow-y: auto;">
-                {% if lotes_vencendo_hoje %}
-                    <ul class="list-group list-group-flush p-0">
-                        {% for detalhe in lotes_vencendo_hoje %}
-                            <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
-                                <div>
-                                    <a href="{{ url_for('detalhes_lotes', item_id=detalhe.item_estoque.id) }}">{{ detalhe.item_estoque.descricao | truncate(40) }}</a>
-                                    <small class="d-block text-muted">Lote: {{ detalhe.lote }}</small>
-                                </div>
-                                <span class="badge bg-danger rounded-pill">{{ "%.0f"|format(detalhe.quantidade) }} UN</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-center text-muted mt-3">Nenhum item vencendo hoje. Tudo certo!</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Itens com Vencimento Próximo -->
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="fas fa-calendar-alt me-2"></i><strong>Vencimento em até 40 dias</strong>
-            </div>
-            <div class="card-body" style="max-height: 250px; overflow-y: auto;">
-                {% if lotes_proximo_vencimento %}
-                    <ul class="list-group list-group-flush p-0">
-                        {% for detalhe in lotes_proximo_vencimento %}
-                            <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
-                                <div>
-                                    <a href="{{ url_for('detalhes_lotes', item_id=detalhe.item_estoque.id) }}">{{ detalhe.item_estoque.descricao | truncate(40) }}</a>
-                                    <small class="d-block text-muted">Lote: {{ detalhe.lote }} | Vence em: {{ (detalhe.validade - today_date).days }} dias</small>
-                                </div>
-                                <span class="badge bg-warning rounded-pill">{{ "%.0f"|format(detalhe.quantidade) }} UN</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-center text-muted mt-3">Nenhum item com vencimento próximo.</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Linha de Gráficos Principais -->
-<div class="row g-3 mb-4 fade-in-section">
-    <div class="col-lg-7">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0">Movimentações (Últimos 15 dias)</h5>
-            </div>
+<!-- === ZONA DE CONSUMÍVEIS === -->
+<div class="row g-4 mb-4">
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
             <div class="card-body">
-                <canvas id="movimentacoesChart"></canvas>
+                <div>
+                    <div class="kpi-title">Total de Consumíveis</div>
+                    <div class="kpi-value">{{ total_consumiveis }}</div>
+                </div>
+                <i class="fas fa-shopping-cart kpi-icon"></i>
             </div>
         </div>
     </div>
-    <div class="col-lg-5">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0">Itens por Tipo</h5>
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
+            <div class="card-body">
+                <div>
+                    <div class="kpi-title">Consumíveis em Falta</div>
+                    <div class="kpi-value" style="color: var(--danger-neon);">{{ consumiveis_zerados }}</div>
+                </div>
+                <i class="fas fa-exclamation-circle kpi-icon"></i>
             </div>
-            <div class="card-body d-flex align-items-center justify-content-center">
-                <canvas id="tiposChart"></canvas>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
+            <div class="card-body">
+                <div>
+                    <div class="kpi-title">Baixo Estoque</div>
+                    <div class="kpi-value" style="color: var(--warning-neon);">{{ consumiveis_baixo_estoque }}</div>
+                </div>
+                <i class="fas fa-triangle-exclamation kpi-icon"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 fade-in-up kpi-card">
+        <div class="card">
+            <div class="card-body">
+                <div>
+                    <div class="kpi-title">Ações Rápidas</div>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px;">
+                        <a href="{{ url_for('consumivel') }}" class="btn btn-sm btn-info" title="Ver todos"><i class="fas fa-list"></i> Ver</a>
+                        <a href="{{ url_for('importar_consumivel') }}" class="btn btn-sm btn-success" title="Importar"><i class="fas fa-upload"></i> +</a>
+                    </div>
+                </div>
+                <i class="fas fa-rocket kpi-icon"></i>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Nova Linha para o Gráfico de Movimentações por Etapa -->
-<div class="row g-3 mb-4 fade-in-section">
-    <div class="col-lg-12">
+<!-- === WIDGET DE CONSUMÍVEIS COM BAIXO ESTOQUE === -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6 fade-in-up suggestions-card">
         <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0">Total de Itens Movimentados por Etapa</h5>
+            <div class="card-header"><i class="fas fa-arrow-down me-2 text-warning"></i> Top 5 Consumíveis com Menor Quantidade</div>
+            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                {% if low_consumiveis %}
+                <ul class="list-group list-group-flush">
+                    {% for consumivel in low_consumiveis %}
+                    <li class="list-group-item bg-transparent d-flex justify-content-between align-items-start py-3">
+                        <div style="flex: 1;">
+                            <a href="{{ url_for('consumivel') }}" class="text-truncate fw-bold text-info" title="{{ consumivel.descricao }}">{{ consumivel.descricao }}</a>
+                            <small class="d-block text-muted">Código: {{ consumivel.codigo_produto }} | Nº: {{ consumivel.n_produto }}</small>
+                            <small class="d-block text-muted">Unidade: {{ consumivel.unidade_medida or 'UN' }}</small>
+                        </div>
+                        <span class="badge {% if consumivel.quantidade_atual == 0 %}bg-danger{% elif consumivel.quantidade_atual <= consumivel.estoque_minimo %}bg-warning text-dark{% else %}bg-success{% endif %} rounded-pill ms-2" style="white-space: nowrap;">
+                            {{ "%.2f"|format(consumivel.quantidade_atual) }}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center p-3">
+                    <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                    <p class="text-muted">Todos os consumíveis em nível adequado!</p>
+                </div>
+                {% endif %}
             </div>
-            <div class="card-body d-flex align-items-center justify-content-center">
-                <!-- Adiciona um wrapper com altura definida para conter o gráfico -->
-                <div style="position: relative; height:350px; width:100%">
-                    <canvas id="etapasChart"></canvas>
+        </div>
+    </div>
+    <div class="col-lg-6 fade-in-up details-card">
+        <div class="card h-100">
+            <div class="card-header"><i class="fas fa-history me-2 text-info"></i> Últimas Movimentações de Consumíveis</div>
+            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                {% if recent_consumivel_moves %}
+                <ul class="list-group list-group-flush">
+                    {% for move in recent_consumivel_moves %}
+                    <li class="list-group-item bg-transparent d-flex justify-content-between align-items-start py-3">
+                        <div style="flex: 1;">
+                            <div class="fw-bold">
+                                <span class="badge {% if move.tipo == 'ENTRADA' %}bg-success{% else %}bg-danger{% endif %} me-2">{{ move.tipo }}</span>
+                                {{ move.consumivel.descricao | truncate(40) }}
+                            </div>
+                            <small class="d-block text-muted">{{ move.data_movimentacao.strftime('%d/%m/%Y %H:%M') }}</small>
+                            <small class="d-block text-muted">Setor: {{ move.setor_destino or 'N/A' }} | Usuário: {{ move.usuario or 'N/A' }}</small>
+                        </div>
+                        <span class="badge bg-secondary rounded-pill ms-2" style="white-space: nowrap;">{{ "%.2f"|format(move.quantidade) }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center p-3">
+                    <i class="fas fa-inbox fa-2x text-muted mb-2"></i>
+                    <p class="text-muted">Nenhuma movimentação registrada</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- === ZONA DE ANÁLISE TÁTICA (Gráficos) === -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-7 fade-in-up main-chart-card">
+        <div class="card h-100">
+            <div class="card-header">Análise Preditiva de Consumo</div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input class="form-control" list="datalistOptions" id="item-search-input" placeholder="Selecione um item para análise...">
+                    <datalist id="datalistOptions"></datalist>
+                </div>
+                <div class="chart-container">
+                    <canvas id="movimentacoesChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5 fade-in-up sub-chart-card">
+        <div class="card h-100">
+            <div class="card-header">Análise de Giro de Estoque (Itens Parados)</div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="stockTurnoverChart"></canvas>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-
-<!-- Linha de Detalhes e Atividade -->
-<div class="row g-3 fade-in-section">
-    <div class="col-lg-4">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-arrow-up text-success"></i> Top 5 Itens com Maior Estoque</h5>
-            </div>
-            <ul class="list-group list-group-flush">
-                {% for item in top_stocked_items %}
-                <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
-                    <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-truncate" title="{{ item.descricao }}">{{ item.descricao }}</a>
-                    <span class="badge bg-success rounded-pill">{{ "%.0f"|format(item.qtd_estoque) }}</span>
-                </li>
-                {% else %}
-                <li class="list-group-item bg-transparent text-center">Nenhum item no estoque.</li>
-                {% endfor %}
-            </ul>
-        </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-arrow-down text-warning"></i> Top 5 Itens com Baixo Estoque</h5>
-            </div>
-            <ul class="list-group list-group-flush">
-                {% for item in low_stocked_items %}
-                <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
-                    <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-truncate" title="{{ item.descricao }}">{{ item.descricao }}</a>
-                    <span class="badge bg-warning rounded-pill">{{ "%.0f"|format(item.qtd_estoque) }}</span>
-                </li>
-                {% else %}
-                <li class="list-group-item bg-transparent text-center">Nenhum item com baixo estoque.</li>
-                {% endfor %}
-            </ul>
-        </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-history"></i> Atividade Recente</h5>
-            </div>
-            <div class="card-body" style="max-height: 250px; overflow-y: auto;">
-                <ul class="timeline">
-                    {% for mov in recent_movimentacoes %}
-                    <li class="timeline-item">
-                        {% if mov.tipo == 'ENTRADA' %}
-                        <div class="timeline-icon bg-success"><i class="fas fa-plus"></i></div>
-                        <small class="text-muted">{{ mov.data_movimentacao.strftime('%d/%m %H:%M') }}</small><br>
-                        <strong>Entrada</strong> de <strong>{{ "%.0f"|format(mov.quantidade) }} un.</strong> no item <a href="{{ url_for('historico', item_id=mov.item_id) }}">{{ mov.item.codigo }}</a>.
-                        {% else %}
-                        <div class="timeline-icon bg-danger"><i class="fas fa-minus"></i></div>
-                        <small class="text-muted">{{ mov.data_movimentacao.strftime('%d/%m %H:%M') }}</small><br>
-                        <strong>Saída</strong> de <strong>{{ "%.0f"|format(mov.quantidade) }} un.</strong> do item <a href="{{ url_for('historico', item_id=mov.item_id) }}">{{ mov.item.codigo }}</a>.
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
+<!-- === ZONA DE INTELIGÊNCIA PROATIVA (Sugestões e Alertas) === -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-12 fade-in-up suggestions-card">
+        <div class="card">
+            <div class="card-header"><i class="fas fa-lightbulb me-2 text-warning"></i> Sugestões de Compra Inteligente</div>
+            <div class="card-body" id="sugestoes-compra-container">
+                <!-- Conteúdo carregado via JS -->
             </div>
         </div>
     </div>
 </div>
 
+<div class="row g-4">
+    {% if lotes_vencendo_hoje %}
+    <div class="col-lg-4 fade-in-up details-card">
+        <div class="card h-100">
+            <div class="card-header"><i class="fas fa-calendar-times me-2 text-danger"></i> Itens Vencendo Hoje</div>
+            <div class="card-body" style="max-height: 250px; overflow-y: auto;">
+                <ul class="list-group list-group-flush p-0">
+                    {% for lote in lotes_vencendo_hoje %}
+                        <li class="list-group-item bg-transparent d-flex justify-content-between align-items-center">
+                            <div>
+                                <a href="{{ url_for('detalhes_lotes', item_id=lote.item_estoque.id) }}">{{ lote.item_estoque.descricao | truncate(35) }}</a>
+                                <small class="d-block text-muted">Lote: {{ lote.lote }}</small>
+                            </div>
+                            <span class="badge bg-danger rounded-pill">{{ "%.0f"|format(lote.quantidade) }} {{ lote.item_estoque.un or 'UN' }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-lg-4 fade-in-up details-card">
+        <div class="card h-100">
+            <div class="card-header"><i class="fas fa-arrow-up me-2 text-success"></i> Top 5 Itens com Maior Estoque</div>
+            <ul class="list-group list-group-flush">
+                {% for item in top_stocked_items %}
+                <li class="list-group-item bg-transparent">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-decoration-none">
+                                <div style="color: #00d4ff; font-weight: 600; font-size: 0.95rem;">{{ item.codigo }}</div>
+                                <small style="color: #8899bb; line-height: 1.3;">
+                                    {% if item.descricao and item.descricao not in ["-", "=", ""] %}
+                                        {{ item.descricao | truncate(40) }}
+                                    {% else %}
+                                        <em>(sem descrição)</em>
+                                    {% endif %}
+                                </small>
+                            </a>
+                        </div>
+                        <span class="badge bg-success rounded-pill ms-2">{{ "%.0f"|format(item.qtd_estoque) }}</span>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-4 fade-in-up details-card">
+        <div class="card h-100">
+            <div class="card-header"><i class="fas fa-arrow-down me-2 text-warning"></i> Top 5 Itens com Baixo Estoque</div>
+            <ul class="list-group list-group-flush">
+                {% for item in low_stocked_items %}
+                <li class="list-group-item bg-transparent">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="text-decoration-none">
+                                <div style="color: #ffaa00; font-weight: 600; font-size: 0.95rem;">{{ item.codigo }}</div>
+                                <small style="color: #8899bb; line-height: 1.3;">
+                                    {% if item.descricao and item.descricao not in ["-", "=", ""] %}
+                                        {{ item.descricao | truncate(40) }}
+                                    {% else %}
+                                        <em>(sem descrição)</em>
+                                    {% endif %}
+                                </small>
+                            </a>
+                        </div>
+                        <span class="badge bg-warning rounded-pill ms-2">{{ "%.0f"|format(item.qtd_estoque) }}</span>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // Gráfico de Linha - Movimentações
-    const ctxLine = document.getElementById('movimentacoesChart').getContext('2d');
-    new Chart(ctxLine, {
-        type: 'line',
-        data: {
-            labels: {{ movimentacoes_chart_data.labels|tojson if movimentacoes_chart_data else []|tojson }},
-            datasets: [{
-                label: 'Entradas',
-                data: {{ movimentacoes_chart_data.entradas|tojson if movimentacoes_chart_data else []|tojson }},
-                borderColor: 'rgba(0, 255, 255, 0.8)',
-                backgroundColor: 'rgba(0, 255, 255, 0.1)',
-                fill: true,
-                tension: 0.4
-            }, {
-                label: 'Saídas',
-                data: {{ movimentacoes_chart_data.saidas|tojson if movimentacoes_chart_data else []|tojson }},
-                borderColor: 'rgba(255, 0, 255, 0.8)',
-                backgroundColor: 'rgba(255, 0, 255, 0.1)',
-                fill: true,
-                tension: 0.4
-            }]
-        }
-    });
+    Chart.defaults.color = '#a0b0d0';
+    Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
 
-    // Gráfico de Pizza - Tipos
-    const ctxDoughnut = document.getElementById('tiposChart').getContext('2d');
-    new Chart(ctxDoughnut, {
-        type: 'doughnut',
-        data: {
-            labels: {{ tipos_chart_data.labels|tojson if tipos_chart_data else []|tojson }},
-            datasets: [{
-                data: {{ tipos_chart_data.counts|tojson if tipos_chart_data else []|tojson }},
-                backgroundColor: ['#00ffff', '#ff00ff', '#ffff00', '#00ff00', '#00b3ff', '#ff6600'],
-                borderColor: '#1a1a1a'
-            }]
-        },
-        options: { plugins: { legend: { position: 'bottom' } } }
-    });
-
-    // Gráfico de Barras - Movimentações por Etapa
-    const ctxEtapas = document.getElementById('etapasChart').getContext('2d');
-    new Chart(ctxEtapas, {
-        type: 'bar',
-        data: {
-            labels: {{ etapas_chart_data.labels|tojson if etapas_chart_data else []|tojson }},
-            datasets: [{
-                label: 'Quantidade Total Movimentada',
-                data: {{ etapas_chart_data.quantities|tojson if etapas_chart_data else []|tojson }},
-                backgroundColor: [
-                    'rgba(0, 255, 255, 0.6)', // Ciano
-                    'rgba(255, 0, 255, 0.6)', // Magenta
-                    'rgba(255, 255, 0, 0.6)', // Amarelo
-                    'rgba(0, 255, 0, 0.6)',   // Verde
-                    'rgba(0, 191, 255, 0.6)', // Azul Céu
-                    'rgba(255, 102, 0, 0.6)', // Laranja
-                    'rgba(128, 0, 128, 0.6)', // Roxo
-                    'rgba(0, 128, 128, 0.6)', // Teal
-                    'rgba(255, 99, 132, 0.6)', // Vermelho Suave
-                    'rgba(54, 162, 235, 0.6)', // Azul
-                    'rgba(255, 206, 86, 0.6)'  // Dourado
-                ],
-                borderColor: [
-                    'rgba(0, 255, 255, 1)',
-                    'rgba(255, 0, 255, 1)',
-                    'rgba(255, 255, 0, 1)',
-                    'rgba(0, 255, 0, 1)',
-                    'rgba(0, 191, 255, 1)',
-                    'rgba(255, 102, 0, 1)',
-                    'rgba(128, 0, 128, 1)',
-                    'rgba(0, 128, 128, 1)',
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: { y: { beginAtZero: true, title: { display: true, text: 'Quantidade' } }, x: { title: { display: true, text: 'Etapa' } } },
-            plugins: { legend: { display: false } }
-        }
-    });
-
-    // Animação de Fade-in
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('is-visible');
+    // --- GRÁFICO DE MOVIMENTAÇÕES E PREVISÃO ---
+    let movimentacoesChart;
+    const ctxMov = document.getElementById('movimentacoesChart').getContext('2d');
+    
+    function initMovimentacoesChart() {
+        if (movimentacoesChart) movimentacoesChart.destroy();
+        movimentacoesChart = new Chart(ctxMov, {
+            type: 'line',
+            data: {
+                labels: {{ movimentacoes_chart_data.labels|tojson }},
+                datasets: [
+                    { label: 'Entradas', data: {{ movimentacoes_chart_data.entradas|tojson }}, borderColor: 'rgba(0, 255, 255, 1)', backgroundColor: 'rgba(0, 255, 255, 0.2)', fill: true, tension: 0.4 },
+                    { label: 'Saídas', data: {{ movimentacoes_chart_data.saidas|tojson }}, borderColor: 'rgba(255, 0, 255, 1)', backgroundColor: 'rgba(255, 0, 255, 0.2)', fill: true, tension: 0.4 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Quantidade' } },
+                    x: { title: { display: true, text: 'Data' } }
+                }
             }
         });
-    }, { threshold: 0.1 });
+    }
 
-    document.querySelectorAll('.fade-in-section').forEach(section => {
-        observer.observe(section);
+    // --- GRÁFICO DE GIRO DE ESTOQUE ---
+    let stockTurnoverChart;
+    const ctxTurnover = document.getElementById('stockTurnoverChart').getContext('2d');
+
+    async function loadStockTurnoverChart() {
+        const response = await fetch(`{{ url_for('api_stock_turnover_data') }}`);
+        const data = await response.json();
+        const turnoverRates = data.map(item => item.giro_estoque);
+
+        if (stockTurnoverChart) stockTurnoverChart.destroy();
+        stockTurnoverChart = new Chart(ctxTurnover, {
+            type: 'bar',
+            data: {
+                labels: data.map(item => item.descricao),
+                datasets: [{
+                    label: 'Índice de Giro',
+                    data: turnoverRates,
+                    backgroundColor: turnoverRates.map(rate => rate === 0 ? 'rgba(255, 0, 100, 0.7)' : 'rgba(0, 255, 255, 0.6)'),
+                    borderColor: turnoverRates.map(rate => rate === 0 ? 'rgba(255, 0, 100, 1)' : 'rgba(0, 255, 255, 1)'),
+                    borderWidth: 1,
+                    customData: data
+                }]
+            },
+            options: {
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const item = context.dataset.customData[context.dataIndex];
+                                return [
+                                    `Item: ${item.codigo}`,
+                                    `Giro: ${item.giro_estoque}`,
+                                    `Estoque: ${item.qtd_estoque} un.`,
+                                    `Saídas (90d): ${item.total_saidas} un.`
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { beginAtZero: true, title: { display: true, text: 'Índice de Giro' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
+                    y: { 
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { callback: function(value) { const label = this.getLabelForValue(value); return label.length > 30 ? label.substring(0, 30) + '...' : label; } } 
+                    }
+                }
+            }
+        });
+    }
+
+    // --- LÓGICA PARA SUGESTÕES DE COMPRA ---
+    async function loadPurchaseSuggestions() {
+        const container = document.getElementById('sugestoes-compra-container');
+        container.innerHTML = `<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Analisando estoque e previsões...</p></div>`;
+        
+        try {
+            // Timeout de 30 segundos para a requisição
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            const response = await fetch(`{{ url_for('api_sugestoes_compra') }}`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const suggestions = await response.json();
+            container.innerHTML = '';
+            
+            if (!Array.isArray(suggestions) || suggestions.length === 0) {
+                container.innerHTML = `<div class="text-center p-3"><i class="fas fa-check-circle fa-3x text-success mb-2"></i><h5 class="mb-1">Estoque Otimizado!</h5><p class="text-muted">Nenhuma sugestão de compra no momento.</p></div>`;
+            } else {
+                const list = document.createElement('ul');
+                list.className = 'list-group list-group-flush';
+                suggestions.forEach(sug => {
+                    const item = document.createElement('li');
+                    item.className = 'list-group-item bg-transparent d-flex justify-content-between align-items-center flex-wrap';
+                    item.innerHTML = `<div><a href="/item/${sug.item_id}/lotes-detalhes" class="fw-bold">${sug.item_descricao}</a><small class="d-block text-muted">Código: ${sug.item_codigo}</small></div><span class="badge bg-warning text-dark p-2">Comprar ${sug.quantidade_sugerida} un. até ${sug.data_limite_pedido}</span>`;
+                    list.appendChild(item);
+                });
+                container.appendChild(list);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar sugestões de compra:', error);
+            container.innerHTML = `<div class="alert alert-warning mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Erro ao analisar sugestões de compra. Tente novamente mais tarde.</div>`;
+        }
+    }
+
+    // --- LÓGICA PARA ANÁLISE PREDITIVA ---
+    const searchInput = document.getElementById('item-search-input');
+    const datalist = document.getElementById('datalistOptions');
+    let searchTimeout;
+
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        const query = searchInput.value;
+        if (query.length < 2) return;
+        searchTimeout = setTimeout(async () => {
+            const response = await fetch(`{{ url_for('api_items_search') }}?q=${encodeURIComponent(query)}`);
+            const items = await response.json();
+            datalist.innerHTML = '';
+            items.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.text;
+                option.dataset.id = item.id;
+                datalist.appendChild(option);
+            });
+        }, 300);
     });
+
+    searchInput.addEventListener('change', async () => {
+        const selectedOption = Array.from(datalist.options).find(opt => opt.value === searchInput.value);
+        if (selectedOption) {
+            updateMovimentacoesChart(selectedOption.dataset.id);
+        }
+    });
+
+    async function updateMovimentacoesChart(itemId) {
+        const [histResponse, prevResponse] = await Promise.all([
+            fetch(`{{ url_for('api_item_historico_chart', item_id=0) }}`.replace('0', itemId)),
+            fetch(`{{ url_for('api_item_previsao', item_id=0) }}`.replace('0', itemId))
+        ]);
+        const historico = await histResponse.json();
+        const previsaoData = await prevResponse.json();
+        const previsaoLabels = previsaoData.previsao.map(p => new Date(p.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        const previsaoValores = previsaoData.previsao.map(p => p.quantidade_prevista);
+
+        movimentacoesChart.data.labels = historico.labels.concat(previsaoLabels);
+        movimentacoesChart.data.datasets[0].data = historico.entradas;
+        movimentacoesChart.data.datasets[1].data = historico.saidas;
+        
+        if (movimentacoesChart.data.datasets.length < 3) {
+            movimentacoesChart.data.datasets.push({
+                label: 'Previsão de Consumo',
+                data: new Array(historico.labels.length).fill(null).concat(previsaoValores),
+                borderColor: 'rgba(0, 179, 255, 1)',
+                borderDash: [5, 5], fill: false, tension: 0.4
+            });
+        } else {
+            movimentacoesChart.data.datasets[2].data = new Array(historico.labels.length).fill(null).concat(previsaoValores);
+        }
+        movimentacoesChart.update();
+    }
+
+    // --- LÓGICA DE ATUALIZAÇÃO EM TEMPO REAL (WebSocket) ---
+    const socket = io();
+
+    socket.on('connect', function() {
+        console.log('Conectado ao servidor em tempo real!');
+    });
+
+    socket.on('dashboard_update', function(msg) {
+        console.log('Recebido evento de atualização:', msg.message);
+        
+        // Adiciona um brilho sutil para indicar a atualização
+        document.querySelectorAll('.kpi-card, .main-chart-card, .sub-chart-card, .suggestions-card, .details-card').forEach(card => {
+            card.style.transition = 'box-shadow 0.2s ease-in-out';
+            card.style.boxShadow = '0 0 35px rgba(0, 255, 255, 0.4)';
+            setTimeout(() => { card.style.boxShadow = ''; }, 1000);
+        });
+
+        // Recarrega os componentes do dashboard
+        updateKPIs();
+        loadPurchaseSuggestions();
+        loadStockTurnoverChart();
+        // Opcional: recarregar o gráfico principal se um item estiver selecionado
+        const selectedOption = Array.from(datalist.options).find(opt => opt.value === searchInput.value);
+        if (selectedOption) {
+            updateMovimentacoesChart(selectedOption.dataset.id);
+        } else {
+            initMovimentacoesChart(); // Volta para o gráfico geral
+        }
+    });
+
+    // --- INICIALIZAÇÃO ---
+    initMovimentacoesChart();
+    loadStockTurnoverChart();
+    loadPurchaseSuggestions();
+
+    async function updateKPIs() {
+        const response = await fetch(`{{ url_for('api_kpis') }}`);
+        const kpis = await response.json();
+        document.getElementById('kpi-itens-distintos').textContent = kpis.total_items_distintos;
+        document.getElementById('kpi-total-unidades').textContent = Math.round(kpis.total_unidades);
+        document.getElementById('kpi-itens-zerados').textContent = kpis.itens_zerados;
+        document.getElementById('kpi-lotes-criticos').textContent = kpis.critical_lotes;
+    }
 });
 </script>
 {% endblock %}

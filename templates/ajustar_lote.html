@@ -1,54 +1,71 @@
 {% extends 'base.html' %}
 
-{% block title %}Ajustar Estoque de Lote{% endblock %}
+{% block title %}Ajustar Lote{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h3>Ajustar Estoque de Lote</h3>
-    </div>
-    <div class="card-body">
-        <div class="mb-4 p-3 rounded border text-light">
-            <h5>Detalhes do Item</h5>
-            <div class="row">
-                <div class="col-md-8"><strong>Descrição:</strong> {{ item.descricao }}</div>
-                <div class="col-md-4"><strong>Cód. Estoc:</strong> {{ item.codigo }}</div>
-            </div>
-            <hr>
-            <h5>Detalhes do Lote</h5>
-            <p><strong>Quantidade Atual:</strong> <span class="fw-bold">{{ detalhe.quantidade }}</span></p>
-        </div>
+<h3>Ajuste de Lote para o Item: <span class="text-primary">{{ detalhe.item_estoque.descricao }}</span></h3>
+<p class="text-muted">Ajustando o Lote: <strong>{{ detalhe.lote }}</strong> | Item NF: <strong>{{ detalhe.item_nf }}</strong></p>
 
-        <form method="POST">
-            <div class="row g-3 mb-3">
+<div class="card">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('ajustar_lote', detalhe_id=detalhe.id) }}">
+            <div class="row g-3">
+                <!-- Campo de Quantidade -->
                 <div class="col-md-4">
-                    <label for="lote" class="form-label">Lote*</label>
-                    <input type="text" class="form-control" id="lote" name="lote" value="{{ detalhe.lote }}" required>
+                    <label for="quantidade" class="form-label">Nova Quantidade (Saldo)</label>
+                    <input type="number" step="any" class="form-control" id="quantidade" name="quantidade" value="{{ detalhe.quantidade }}" required>
+                    <div class="form-text">
+                        A quantidade atual é <strong>{{ detalhe.quantidade }}</strong>. Alterar este valor irá gerar um registro de ajuste no histórico.
+                    </div>
                 </div>
+
+                <!-- Campo de Lote -->
                 <div class="col-md-4">
-                    <label for="item_nf" class="form-label">Item NF*</label>
-                    <input type="text" class="form-control" id="item_nf" name="item_nf" value="{{ detalhe.item_nf }}" required>
+                    <label for="lote" class="form-label">Lote</label>
+                    <input type="text" class="form-control" id="lote" name="lote" value="{{ detalhe.lote or '' }}">
                 </div>
+
+                <!-- Campo NF -->
                 <div class="col-md-4">
-                    <label for="nf" class="form-label">NF</label>
+                    <label for="nf" class="form-label">Nota Fiscal (NF)</label>
                     <input type="text" class="form-control" id="nf" name="nf" value="{{ detalhe.nf or '' }}">
                 </div>
-            </div>
-            <div class="row g-3 align-items-end">
+
+                <!-- Campo Item NF -->
                 <div class="col-md-4">
-                    <label for="nova_quantidade" class="form-label">Nova Quantidade Correta*</label>
-                    <input type="number" class="form-control" id="nova_quantidade" name="nova_quantidade" value="{{ detalhe.quantidade }}" required step="0.0001">
-                    <div class="form-text">Informe a quantidade total que este lote deveria ter. O sistema calculará a diferença.</div>
+                    <label for="item_nf" class="form-label">Item da Nota Fiscal</label>
+                    <input type="text" class="form-control" id="item_nf" name="item_nf" value="{{ detalhe.item_nf or '' }}">
                 </div>
+
+                <!-- Campo Validade -->
+                <div class="col-md-4">
+                    <label for="validade" class="form-label">Data de Validade</label>
+                    <input type="date" class="form-control" id="validade" name="validade" value="{{ detalhe.validade.strftime('%Y-%m-%d') if detalhe.validade else '' }}">
+                </div>
+
+                <!-- Campo Endereço -->
                 <div class="col-md-8">
-                    <label for="observacao" class="form-label">Motivo do Ajuste (Observação)*</label>
-                    <input type="text" class="form-control" id="observacao" name="observacao" placeholder="Ex: Contagem incorreta na entrada, perda de material, etc." required>
+                    <label for="endereco" class="form-label">Endereço do Item</label>
+                    <input type="text" class="form-control" id="endereco" name="endereco" value="{{ detalhe.item_estoque.endereco or '' }}">
                 </div>
+
+                <!-- Campo Estação -->
+                <div class="col-md-12">
+                    <label for="estacao" class="form-label">Estação</label>
+                    <input type="text" class="form-control" id="estacao" name="estacao" value="{{ detalhe.estacao or '' }}">
+                </div>
+
+                <!-- Campo Observação -->
+                <div class="col-12">
+                    <label for="observacao" class="form-label">Motivo do Ajuste (Obrigatório)</label>
+                    <textarea class="form-control" id="observacao" name="observacao" rows="3" placeholder="Ex: Correção de contagem de inventário, ajuste de dados da NF, etc." required></textarea>
+                </div>
+
             </div>
 
             <div class="mt-4">
-                <button type="submit" class="btn btn-warning"><i class="fas fa-check"></i> Salvar Ajuste</button>
-                <a href="{{ url_for('detalhes_lotes', item_id=item.id) }}" class="btn btn-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Salvar Ajuste</button>
+                <a href="{{ url_for('detalhes_lotes', item_id=detalhe.item_estoque.id) }}" class="btn btn-secondary">Cancelar</a>
             </div>
         </form>
     </div>

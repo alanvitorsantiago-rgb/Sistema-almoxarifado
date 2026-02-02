@@ -1,16 +1,63 @@
 # Gerenciamento de Almoxarifado
 
-Este é um sistema web para gerenciamento de estoque, construído com Flask, SQLite e com acesso externo facilitado via ngrok.
+Sistema web completo para gerenciamento de estoque e consumíveis, construído com Flask e SQLite.
 
-## Funcionalidades
+## ✨ Funcionalidades
 
-- Cadastro de itens de estoque.
-- Listagem de todos os itens cadastrados.
-- Movimentação de entrada e saída de itens por lote.
-- Geração de relatórios e exportação para Excel.
-- Dashboard com KPIs e gráficos.
-- Interface web responsiva com Bootstrap 5.
-- Acesso externo simplificado com `ngrok`, sem necessidade de configuração de firewall ou permissões de administrador.
+### 📦 Estoque Principal
+
+- Cadastro de itens de estoque
+- Listagem com busca avançada
+- Movimentações (entrada/saída) com rastreamento
+- Controle de lotes/NF
+- Histórico de movimentações
+- Exportação para Excel
+- Importação em lote
+
+### 🛒 Estoque de Consumíveis (NOVO!)
+
+- Gerenciar consumíveis (caixa, pincel, lixa, fresa, fita, etc)
+- Importação de planilha Excel
+- Registrar entradas e saídas
+- Histórico de movimentações
+- Edição de dados
+- Status visual em cores
+
+### 📊 Relatórios
+
+- Relatório de movimentações
+- Relatórios por etapa
+- Detalhes de lotes
+- KPIs e alertas
+
+### 👥 Administração
+
+- Gerenciar usuários
+- Controle de acesso (Admin/Usuário)
+- Auditoria completa
+
+## 🚀 Novo: Módulo de Consumíveis
+
+Agora você pode gerenciar **estoque de consumíveis** com importação de Excel!
+
+→ **[Ver Documentação de Consumíveis](INDICE_DOCUMENTACAO.md)**
+
+Funcionalidades:
+
+- ✅ Importar planilha com até 13 campos
+- ✅ Listar consumíveis com busca
+- ✅ Registrar entrada/saída
+- ✅ Ver histórico completo
+- ✅ Editar dados (Admin)
+- ✅ Status visual em cores
+
+## Tecnologias Utilizadas
+
+- **Backend:** Python 3, Flask, SQLAlchemy
+- **Frontend:** HTML, Jinja2, Bootstrap 5
+- **Banco de Dados:** SQLite
+- **Importação:** Pandas (Excel)
+- **Autenticação:** Flask-Login, Bcrypt
 
 ## Como Executar o Projeto
 

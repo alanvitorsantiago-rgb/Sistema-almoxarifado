@@ -109,3 +109,6 @@ database.db
 
 # Embedded python
 python311/
+
+# Backups
+backups/

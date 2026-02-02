@@ -44,6 +44,18 @@
                     <label for="cliente" class="form-label">CLIENTE</label>
                     <input type="text" class="form-control" id="cliente" name="cliente" value="{{ item.cliente or '' }}">
                 </div>
+                <div class="col-md-4">
+                    <label for="estoque_minimo" class="form-label">Estoque Mínimo</label>
+                    <input type="number" class="form-control" id="estoque_minimo" name="estoque_minimo" value="{{ item.estoque_minimo or 5 }}" step="0.01" min="0">
+                </div>
+                <div class="col-md-4">
+                    <label for="estoque_ideal_compra" class="form-label">Quantidade Ideal para Comprar <small class="text-muted">(deixe em branco para cálculo automático)</small></label>
+                    <input type="number" class="form-control" id="estoque_ideal_compra" name="estoque_ideal_compra" value="{{ item.estoque_ideal_compra or '' }}" step="0.01" min="0" placeholder="Ex: 100">
+                </div>
+                <div class="col-md-4">
+                    <label for="tempo_reposicao" class="form-label">Tempo de Reposição (dias)</label>
+                    <input type="number" class="form-control" id="tempo_reposicao" name="tempo_reposicao" value="{{ item.tempo_reposicao or 7 }}" min="1">
+                </div>
             </div>
             <hr>
             <div class="d-flex justify-content-end">

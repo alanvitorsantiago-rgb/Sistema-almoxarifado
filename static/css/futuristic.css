@@ -1,0 +1,839 @@
+/* ============================================
+   FUTURISTIC DESIGN SYSTEM - SERCO ENGENHARIA ALMOXARIFADO
+   Sci-Fi | HUD | Holographic | Aerospace Style
+   ============================================ */
+
+/* ============================================
+   1. DESIGN TOKENS & VARIABLES
+   ============================================ */
+
+:root {
+  /* === Background Colors === */
+  --bg-space: #000814;
+  --bg-space-alt: #001d3d;
+  --bg-panel: rgba(13, 27, 42, 0.75);
+  --bg-card: rgba(20, 40, 60, 0.65);
+  --bg-card-hover: rgba(30, 50, 70, 0.75);
+  --bg-input: rgba(10, 20, 35, 0.8);
+  --bg-navbar: rgba(0, 8, 20, 0.95);
+
+  /* === Neon Colors === */
+  --neon-cyan: #00f5ff;
+  --neon-cyan-dark: #00b8d4;
+  --neon-blue: #0096ff;
+  --neon-purple: #b537f2;
+  --neon-purple-dark: #8b2fc9;
+  --neon-yellow: #ffd60a;
+  --neon-green: #00ff41;
+  --neon-red: #ff006e;
+  --neon-orange: #ff9500;
+
+  /* === Border & Glow === */
+  --border-glow: rgba(0, 245, 255, 0.4);
+  --border-glow-hover: rgba(0, 245, 255, 0.8);
+  --border-glow-purple: rgba(181, 55, 242, 0.4);
+  --border-glow-purple-hover: rgba(181, 55, 242, 0.8);
+
+  /* === Text Colors === */
+  --text-primary: #e0f4ff;
+  --text-secondary: #a8dadc;
+  --text-muted: #6c8090;
+  --text-dark: #1d3557;
+
+  /* === Shadows & Glows === */
+  --glow-cyan: 0 0 10px rgba(0, 245, 255, 0.5), 0 0 20px rgba(0, 245, 255, 0.3);
+  --glow-cyan-strong: 0 0 15px rgba(0, 245, 255, 0.8), 0 0 30px rgba(0, 245, 255, 0.5), 0 0 45px rgba(0, 245, 255, 0.3);
+  --glow-purple: 0 0 10px rgba(181, 55, 242, 0.5), 0 0 20px rgba(181, 55, 242, 0.3);
+  --glow-purple-strong: 0 0 15px rgba(181, 55, 242, 0.8), 0 0 30px rgba(181, 55, 242, 0.5);
+  --glow-yellow: 0 0 10px rgba(255, 214, 10, 0.6), 0 0 20px rgba(255, 214, 10, 0.4);
+  --glow-green: 0 0 10px rgba(0, 255, 65, 0.5), 0 0 20px rgba(0, 255, 65, 0.3);
+  --glow-red: 0 0 10px rgba(255, 0, 110, 0.5), 0 0 20px rgba(255, 0, 110, 0.3);
+
+  /* === Spacing === */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+
+  /* === Border Radius === */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* === Transitions === */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.15s ease;
+  --transition-slow: 0.2s ease;
+}
+
+/* ============================================
+   2. GLOBAL STYLES & RESET
+   ============================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-space);
+  /* background-image disabled for performance */
+  color: var(--text-primary);
+  font-family: 'Rajdhana', 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Starfield Animation Overlay - COMPLETELY DISABLED FOR PERFORMANCE */
+/* body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(2px 2px at 20% 30%, white, transparent),
+    radial-gradient(2px 2px at 60% 70%, white, transparent),
+    radial-gradient(1px 1px at 50% 50%, white, transparent),
+    radial-gradient(1px 1px at 80% 10%, white, transparent),
+    radial-gradient(2px 2px at 90% 60%, white, transparent),
+    radial-gradient(1px 1px at 33% 80%, white, transparent);
+  background-size: 200% 200%;
+  background-position: 0% 0%;
+  animation: starfield 120s linear infinite;
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: 0;
+} */
+
+@keyframes starfield {
+  0% {
+    background-position: 0% 0%;
+  }
+
+  100% {
+    background-position: 100% 100%;
+  }
+}
+
+/* ============================================
+   3. TYPOGRAPHY
+   ============================================ */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Orbitron', 'Rajdhana', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--neon-cyan);
+  /* text-shadow: var(--glow-cyan); - REMOVED FOR PERFORMANCE */
+}
+
+.text-mono {
+  font-family: 'Share Tech Mono', 'Consolas', 'Monaco', monospace;
+}
+
+.text-neon-cyan {
+  color: var(--neon-cyan);
+  /* text-shadow removed for performance */
+}
+
+.text-neon-purple {
+  color: var(--neon-purple);
+}
+
+.text-neon-yellow {
+  color: var(--neon-yellow);
+}
+
+.text-neon-green {
+  color: var(--neon-green);
+}
+
+.text-neon-red {
+  color: var(--neon-red);
+}
+
+/* ============================================
+   4. LAYOUT COMPONENTS
+   ============================================ */
+
+.container {
+  position: relative;
+  z-index: 1;
+}
+
+/* Glassmorphism Panel */
+.panel-glass {
+  background: var(--bg-panel);
+  /* backdrop-filter: blur(10px); - REMOVED FOR PERFORMANCE */
+  /* -webkit-backdrop-filter: blur(10px); - REMOVED FOR PERFORMANCE */
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 10px rgba(0, 245, 255, 0.3);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel-glass:hover {
+  border-color: var(--border-glow-hover);
+  box-shadow: 0 0 15px rgba(0, 245, 255, 0.5);
+}
+
+/* HUD Card */
+.card-hud {
+  background: var(--bg-card);
+  /* backdrop-filter: blur(8px); - REMOVED FOR PERFORMANCE */
+  /* -webkit-backdrop-filter: blur(8px); - REMOVED FOR PERFORMANCE */
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 10px rgba(0, 245, 255, 0.3);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-hud::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  animation: scan 3s linear infinite;
+}
+
+@keyframes scan {
+  0% {
+    left: -100%;
+  }
+
+  100% {
+    left: 100%;
+  }
+}
+
+.card-hud:hover {
+  border-color: var(--border-glow-hover);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 245, 255, 0.5);
+}
+
+/* ============================================
+   5. NAVBAR FUTURISTIC
+   ============================================ */
+
+.navbar-futuristic {
+  background: var(--bg-navbar) !important;
+  /* backdrop-filter: blur(15px); - REMOVED FOR PERFORMANCE */
+  /* -webkit-backdrop-filter: blur(15px); - REMOVED FOR PERFORMANCE */
+  border-bottom: 2px solid var(--border-glow);
+  box-shadow: 0 4px 20px rgba(0, 245, 255, 0.2);
+  padding: 0.75rem 0;
+}
+
+.navbar-brand {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--neon-cyan) !important;
+  /* text-shadow removed for performance */
+  letter-spacing: 0.1em;
+  transition: color 0.1s ease;
+}
+
+.navbar-brand:hover {
+  /* hover effect simplified */
+  opacity: 0.9;
+}
+
+.nav-link {
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  transition: all var(--transition-fast);
+  position: relative;
+  padding: 0.5rem 1rem !important;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+  transition: all var(--transition-normal);
+  transform: translateX(-50%);
+}
+
+.nav-link:hover {
+  color: var(--neon-cyan) !important;
+}
+
+.nav-link:hover::after {
+  width: 80%;
+}
+
+.nav-link.active {
+  color: var(--neon-cyan) !important;
+}
+
+/* ============================================
+   6. BUTTONS FUTURISTIC
+   ============================================ */
+
+.btn-futuristic {
+  font-family: 'Rajdhana', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 2px solid;
+  border-radius: var(--radius-md);
+  padding: 0.6rem 1.5rem;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  /* overflow: hidden; - REMOVED FOR PERFORMANCE */
+  /* backdrop-filter: blur(5px); - REMOVED FOR PERFORMANCE */
+}
+
+/* Button ripple effect - DISABLED FOR PERFORMANCE */
+/* .btn-futuristic::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.btn-futuristic:hover::before {
+  width: 300px;
+  height: 300px;
+} */
+
+/* Cyan Button */
+.btn-cyan {
+  background: rgba(0, 150, 255, 0.2);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.btn-cyan:hover {
+  background: rgba(0, 150, 255, 0.4);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 15px rgba(0, 245, 255, 0.6);
+}
+
+/* Purple Button */
+.btn-purple {
+  background: rgba(181, 55, 242, 0.2);
+  border-color: var(--neon-purple);
+  color: var(--neon-purple);
+  box-shadow: var(--glow-purple);
+}
+
+.btn-purple:hover {
+  background: rgba(181, 55, 242, 0.4);
+  border-color: var(--neon-purple);
+  color: var(--neon-purple);
+  box-shadow: 0 0 15px rgba(181, 55, 242, 0.6);
+}
+
+/* Green Button */
+.btn-green {
+  background: rgba(0, 255, 65, 0.2);
+  border-color: var(--neon-green);
+  color: var(--neon-green);
+  box-shadow: var(--glow-green);
+}
+
+.btn-green:hover {
+  background: rgba(0, 255, 65, 0.3);
+  border-color: var(--neon-green);
+  color: var(--neon-green);
+  box-shadow: 0 0 15px rgba(0, 255, 65, 0.6);
+}
+
+/* Outline Buttons */
+.btn-outline-futuristic {
+  background: transparent;
+  border: 2px solid var(--text-secondary);
+  color: var(--text-secondary);
+  transition: all var(--transition-normal);
+}
+
+.btn-outline-futuristic:hover {
+  background: rgba(168, 218, 220, 0.1);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+/* ============================================
+   7. FORM COMPONENTS
+   ============================================ */
+
+/* Futuristic Input */
+.input-futuristic {
+  background: var(--bg-input) !important;
+  border: 2px solid var(--border-glow) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--text-primary) !important;
+  padding: 0.75rem 1rem !important;
+  font-family: 'Rajdhana', sans-serif !important;
+  font-size: 1rem !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+  /* backdrop-filter: blur(5px); - REMOVED FOR PERFORMANCE */
+}
+
+.input-futuristic::placeholder {
+  color: var(--text-muted) !important;
+  font-style: italic;
+}
+
+.input-futuristic:focus {
+  background: rgba(10, 20, 35, 0.95) !important;
+  border-color: var(--neon-cyan) !important;
+  box-shadow: var(--glow-cyan) !important;
+  outline: none !important;
+  color: var(--neon-cyan) !important;
+}
+
+/* Search Bar HUD */
+.search-bar-hud {
+  position: relative;
+}
+
+.search-bar-hud .input-group-text {
+  background: var(--bg-input);
+  border: 2px solid var(--border-glow);
+  border-right: none;
+  color: var(--neon-cyan);
+  /* backdrop-filter: blur(5px); - REMOVED FOR PERFORMANCE */
+}
+
+.search-bar-hud input {
+  border-left: none !important;
+}
+
+.search-bar-hud:focus-within .input-group-text {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+/* ============================================
+   8. TABLE FUTURISTIC
+   ============================================ */
+
+.table-futuristic {
+  background: transparent;
+  color: var(--text-primary);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table-futuristic thead {
+  background: rgba(0, 8, 20, 0.9);
+  border-bottom: 2px solid var(--neon-cyan);
+  box-shadow: 0 2px 10px rgba(0, 245, 255, 0.3);
+}
+
+.table-futuristic thead th {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--neon-cyan);
+  /* text-shadow removed for performance */
+  padding: 1rem 0.75rem;
+  border: none;
+  position: relative;
+}
+
+.table-futuristic thead th::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+}
+
+.table-futuristic tbody tr {
+  border-bottom: 1px solid rgba(0, 245, 255, 0.1);
+  transition: all var(--transition-fast);
+}
+
+.table-futuristic tbody tr:hover {
+  background: rgba(0, 245, 255, 0.05);
+  box-shadow: inset 0 0 20px rgba(0, 245, 255, 0.1);
+}
+
+.table-futuristic tbody td {
+  padding: 0.75rem;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  border: none;
+}
+
+/* Table Badges */
+.badge-codigo {
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--neon-cyan);
+  background: rgba(0, 150, 255, 0.15);
+  border: 1px solid var(--neon-cyan);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  /* box-shadow removed for performance */
+  display: inline-block;
+}
+
+.badge-qtd {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--neon-green);
+  /* text-shadow removed for performance */
+}
+
+.badge-validade {
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: 700;
+  color: var(--neon-yellow);
+  /* text-shadow removed for performance */
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 214, 10, 0.1);
+  border: 1px solid var(--neon-yellow);
+}
+
+.badge-validade.vencido {
+  color: var(--neon-red);
+  /* text-shadow removed for performance */
+  background: rgba(255, 0, 110, 0.1);
+  border-color: var(--neon-red);
+  animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* ============================================
+   9. ACTION BUTTONS (Table)
+   ============================================ */
+
+.action-btn-group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.action-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.7);
+  /* backdrop-filter: blur(5px); - REMOVED FOR PERFORMANCE */
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  padding: 0;
+}
+
+.action-btn i {
+  font-size: 0.9rem;
+}
+
+/* History Button - Cyan */
+.action-btn-history {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
+.action-btn-history:hover {
+  background: rgba(0, 245, 255, 0.2);
+  box-shadow: var(--glow-cyan);
+}
+
+/* Details Button - Blue */
+.action-btn-details {
+  border-color: var(--neon-blue);
+  color: var(--neon-blue);
+}
+
+.action-btn-details:hover {
+  background: rgba(0, 150, 255, 0.2);
+  box-shadow: 0 0 10px rgba(0, 150, 255, 0.5);
+}
+
+/* Edit Button - Yellow */
+.action-btn-edit {
+  border-color: var(--neon-yellow);
+  color: var(--neon-yellow);
+}
+
+.action-btn-edit:hover {
+  background: rgba(255, 214, 10, 0.2);
+  box-shadow: var(--glow-yellow);
+}
+
+/* Delete Button - Red */
+.action-btn-delete {
+  border-color: var(--neon-red);
+  color: var(--neon-red);
+}
+
+.action-btn-delete:hover {
+  background: rgba(255, 0, 110, 0.2);
+  box-shadow: var(--glow-red);
+}
+
+/* ============================================
+   10. PAGINATION
+   ============================================ */
+
+.pagination {
+  gap: 0.5rem;
+}
+
+.page-item .page-link {
+  background: var(--bg-card);
+  border: 2px solid var(--border-glow);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  /* backdrop-filter: blur(5px); - REMOVED FOR PERFORMANCE */
+}
+
+.page-item .page-link:hover {
+  background: rgba(0, 245, 255, 0.1);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.page-item.active .page-link {
+  background: rgba(0, 245, 255, 0.2);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.page-item.disabled .page-link {
+  background: rgba(20, 40, 60, 0.3);
+  border-color: rgba(0, 245, 255, 0.2);
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+/* ============================================
+   11. UTILITY CLASSES
+   ============================================ */
+
+.glow-cyan {
+  box-shadow: var(--glow-cyan);
+}
+
+.glow-purple {
+  box-shadow: var(--glow-purple);
+}
+
+.glow-yellow {
+  box-shadow: var(--glow-yellow);
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-glow {
+  animation: glow-animation 3s ease-in-out infinite;
+}
+
+@keyframes glow-animation {
+
+  0%,
+  100% {
+    box-shadow: var(--glow-cyan);
+  }
+
+  50% {
+    box-shadow: var(--glow-cyan-strong);
+  }
+}
+
+/* ============================================
+   12. RESPONSIVE DESIGN
+   ============================================ */
+
+@media (max-width: 768px) {
+  .table-futuristic {
+    font-size: 0.85rem;
+  }
+
+  .table-futuristic thead th {
+    font-size: 0.65rem;
+    padding: 0.75rem 0.5rem;
+  }
+
+  .table-futuristic tbody td {
+    padding: 0.5rem;
+  }
+
+  .action-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .badge-codigo {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .btn-futuristic {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .table-responsive {
+    border: 1px solid var(--border-glow);
+    border-radius: var(--radius-md);
+  }
+}
+
+/* ============================================
+   13. SCROLLBAR STYLING
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-space);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--neon-cyan), var(--neon-purple));
+  border-radius: var(--radius-sm);
+  box-shadow: var(--glow-cyan);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--neon-purple), var(--neon-cyan));
+  box-shadow: var(--glow-cyan-strong);
+}
+
+/* ============================================
+   14. LOADING & ANIMATIONS
+   ============================================ */
+
+.loading-spinner {
+  border: 3px solid rgba(0, 245, 255, 0.2);
+  border-top: 3px solid var(--neon-cyan);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  box-shadow: var(--glow-cyan);
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   15. ALERTS & MESSAGES
+   ============================================ */
+
+.alert-futuristic {
+  background: var(--bg-card);
+  border: 2px solid;
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  backdrop-filter: blur(8px);
+  margin-bottom: 1rem;
+}
+
+.alert-futuristic.alert-success {
+  border-color: var(--neon-green);
+  color: var(--neon-green);
+  box-shadow: var(--glow-green);
+}
+
+.alert-futuristic.alert-danger {
+  border-color: var(--neon-red);
+  color: var(--neon-red);
+  box-shadow: var(--glow-red);
+}
+
+.alert-futuristic.alert-warning {
+  border-color: var(--neon-yellow);
+  color: var(--neon-yellow);
+  box-shadow: var(--glow-yellow);
+}
+
+.alert-futuristic.alert-info {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
