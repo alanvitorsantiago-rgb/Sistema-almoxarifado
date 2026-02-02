@@ -283,17 +283,24 @@ def api_kpis():
 @login_required
 def api_items_search():
     """API para buscar itens por código ou descrição para autocompletar."""
-    search_query = request.args.get('q', '')
-    query = ItemEstoque.query
-    if search_query:
-        search_term = f"%{search_query}%"
-        query = query.filter(or_(
-            ItemEstoque.codigo.ilike(search_term),
-            ItemEstoque.descricao.ilike(search_term)
-        ))
+    search_query = request.args.get('q', '').lower()
     
-    items = query.limit(10).all()
-    results = [{'id': item.id, 'text': f"{item.codigo} - {item.descricao}"} for item in items]
+    # Busca todos os itens (cache simplificado ou busca direta)
+    items_data = get_all_items_estoque()
+    
+    results = []
+    for item in items_data:
+        codigo = item.get('codigo', '').lower()
+        descricao = item.get('descricao', '').lower()
+        
+        if search_query in codigo or search_query in descricao:
+            results.append({
+                'id': item.get('id'), 
+                'text': f"{item.get('codigo')} - {item.get('descricao')}"
+            })
+            if len(results) >= 15: # Limite de resultados para performance
+                break
+                
     return jsonify(results)
 
 @app.route('/api/item/<int:item_id>/historico-chart')
@@ -302,13 +309,27 @@ def api_item_historico_chart(item_id):
     """Retorna o histórico de movimentações de um item para o gráfico."""
     hoje = date.today()
     labels_mov = [(hoje - timedelta(days=i)).strftime('%d/%m') for i in range(14, -1, -1)]
-    entradas = []
-    saidas = []
-    for i in range(14, -1, -1):
-        dia = hoje - timedelta(days=i)
-        entradas.append(db.session.query(func.sum(Movimentacao.quantidade)).filter(Movimentacao.item_id==item_id, Movimentacao.tipo=='ENTRADA', func.date(Movimentacao.data_movimentacao)==dia).scalar() or 0)
-        saidas.append(db.session.query(func.sum(Movimentacao.quantidade)).filter(Movimentacao.item_id==item_id, Movimentacao.tipo=='SAIDA', func.date(Movimentacao.data_movimentacao)==dia).scalar() or 0)
-
+    
+    # Busca movimentações dos últimos 15 dias via Supabase Helper
+    data_inicio = (hoje - timedelta(days=15)).strftime('%Y-%m-%d')
+    movimentacoes_raw = get_item_movements_in_period(item_id, days=15)
+    
+    entradas_map = {}
+    saidas_map = {}
+    
+    for mov in movimentacoes_raw:
+        dt = datetime.fromisoformat(mov['data_movimentacao']).strftime('%d/%m')
+        qtd = mov.get('quantidade', 0)
+        tipo = mov.get('tipo', '')
+        
+        if 'ENTRADA' in tipo:
+            entradas_map[dt] = entradas_map.get(dt, 0) + qtd
+        elif 'SAIDA' in tipo:
+            saidas_map[dt] = saidas_map.get(dt, 0) + qtd
+            
+    entradas = [entradas_map.get(lbl, 0) for lbl in labels_mov]
+    saidas = [saidas_map.get(lbl, 0) for lbl in labels_mov]
+    
     historico_data = {
         'labels': labels_mov,
         'entradas': entradas,
@@ -1151,17 +1172,20 @@ def _calcular_quantidade_recebida(detalhe_lote):
     Calcula a quantidade total recebida para um lote específico (detalhe).
     Soma todas as movimentações de ENTRADA e AJUSTE-ENTRADA.
     """
-    total_recebido = db.session.query(func.sum(Movimentacao.quantidade)).filter(
-        Movimentacao.item_id == detalhe_lote.item_estoque_id,
-        Movimentacao.lote == detalhe_lote.lote,
-        Movimentacao.nf == detalhe_lote.nf, # Adicionado para garantir a unicidade
-        or_(
-            Movimentacao.tipo == 'ENTRADA',
-            Movimentacao.tipo == 'AJUSTE-ENTRADA'
-        )
-    ).scalar()
+    # Busca movimentações filtradas via Supabase helper
+    filtros = {
+        'item_id': detalhe_lote.item_estoque_id,
+        'lote': detalhe_lote.lote,
+        'nf': detalhe_lote.nf
+    }
+    movimentacoes = select_many('movimentacao', filters=filtros)
+    
+    total_recebido = sum(
+        m.get('quantidade', 0) for m in movimentacoes 
+        if m.get('tipo') in ['ENTRADA', 'AJUSTE-ENTRADA']
+    )
 
-    return total_recebido or 0
+    return total_recebido
 
 @app.route('/lote/excluir/<int:detalhe_id>')
 @admin_required

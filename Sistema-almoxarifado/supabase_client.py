@@ -72,6 +72,7 @@ def insert_one(table: str, data: Dict[str, Any]) -> Optional[Dict]:
     Returns:
         Registro inserido ou None se houver erro
     """
+    if not supabase: return None
     result = safe_execute(
         supabase.table(table).insert(data),
         operation=f"INSERT em {table}"
@@ -91,6 +92,7 @@ def update_one(table: str, filters: Dict[str, Any], data: Dict[str, Any]) -> Opt
     Returns:
         Registro atualizado ou None se houver erro
     """
+    if not supabase: return None
     query = supabase.table(table).update(data)
     for key, value in filters.items():
         query = query.eq(key, value)
@@ -111,6 +113,7 @@ def select_one(table: str, filters: Dict[str, Any], columns: str = '*') -> Optio
     Returns:
         Registro encontrado ou None
     """
+    if not supabase: return None
     query = supabase.table(table).select(columns)
     for key, value in filters.items():
         query = query.eq(key, value)
@@ -135,6 +138,7 @@ def select_many(table: str, filters: Optional[Dict[str, Any]] = None,
     Returns:
         Lista de registros
     """
+    if not supabase: return []
     query = supabase.table(table).select(columns)
     
     if filters:
@@ -164,6 +168,7 @@ def delete_one(table: str, filters: Dict[str, Any]) -> bool:
     Returns:
         True se deletado com sucesso
     """
+    if not supabase: return False
     query = supabase.table(table).delete()
     for key, value in filters.items():
         query = query.eq(key, value)
